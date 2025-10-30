@@ -1,0 +1,9 @@
+[package]
+name = "mycorust"
+version = "0.1.0"
+authors = ["ezeoleaf"]
+edition = "2024"
+
+[dependencies]
+macroquad = "0.4.14"
+rand = "0.8"
