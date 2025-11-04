@@ -2,103 +2,28 @@ use ::rand as external_rand;
 use external_rand::{thread_rng, Rng};
 use macroquad::prelude::*;
 
-const GRID_SIZE: usize = 200;
-const CELL_SIZE: f32 = 4.0;
-const BRANCH_PROB: f32 = 0.002;
-const STEP_SIZE: f32 = 0.5;
-const NUTRIENT_DECAY: f32 = 0.01;
-const OBSTACLE_COUNT: usize = 300;
+mod config;
+mod hypha;
+mod nutrients;
+mod spore;
+mod types;
+mod visualization;
 
-// Energy constants
-const ENERGY_DECAY_RATE: f32 = 0.999;
-const MIN_ENERGY_TO_LIVE: f32 = 0.01;
+use config::*;
+use hypha::Hypha;
+use nutrients::nutrient_gradient;
+use spore::Spore;
+use types::{Connection, FruitBody, Segment};
+use visualization::{
+    draw_connections, draw_fruit_bodies, draw_nutrients, draw_obstacles, draw_segments,
+    draw_stats_and_help,
+};
 
-// Spore constants
-const SPORE_GERMINATION_THRESHOLD: f32 = 0.6;
-const SPORE_MAX_AGE: f32 = 5.0;
+// (constants moved to config)
 
-// Anastomosis constants
-const ANASTOMOSIS_DISTANCE: f32 = 2.0;
-const ANASTOMOSIS_DISTANCE_SQ: f32 = ANASTOMOSIS_DISTANCE * ANASTOMOSIS_DISTANCE;
+// (types moved to modules)
 
-// Diffusion constants
-const DIFFUSION_RATE: f32 = 0.05;
-
-// Steering constants
-const GRADIENT_STEERING_STRENGTH: f32 = 0.1;
-const ANGLE_WANDER_RANGE: f32 = 0.05;
-
-// Hyphae avoidance
-const HYPHAE_AVOIDANCE_DISTANCE: f32 = 2.0;
-const HYPHAE_AVOIDANCE_DISTANCE_SQ: f32 = HYPHAE_AVOIDANCE_DISTANCE * HYPHAE_AVOIDANCE_DISTANCE;
-
-#[derive(Clone)]
-struct Hypha {
-    x: f32,
-    y: f32,
-    prev_x: f32,
-    prev_y: f32,
-    angle: f32,
-    alive: bool,
-    energy: f32,
-    parent: Option<usize>,
-    age: f32,
-}
-
-#[derive(Clone)]
-struct Spore {
-    x: f32,
-    y: f32,
-    vx: f32,
-    vy: f32,
-    alive: bool,
-    age: f32,
-}
-
-struct Connection {
-    hypha1: usize,
-    hypha2: usize,
-    strength: f32,
-}
-
-struct Segment {
-    from: Vec2,
-    to: Vec2,
-    age: f32,
-}
-
-const MAX_SEGMENT_AGE: f32 = 10.0;
-const SEGMENT_AGE_INCREMENT: f32 = 0.01;
-
-// Fruiting bodies
-struct FruitBody {
-    x: f32,
-    y: f32,
-    age: f32,
-}
-
-const FRUITING_MIN_HYPHAE: usize = 50;
-const FRUITING_THRESHOLD_TOTAL_ENERGY: f32 = 15.0;
-const FRUITING_COOLDOWN: f32 = 10.0;
-
-fn nutrient_color(value: f32) -> Color {
-    // Clamp between 0 and 1
-    let v = value.clamp(0.0, 1.0);
-    // Map nutrients to a brownish-to-green gradient
-    Color::new(0.2 + 0.3 * v, 0.3 + 0.5 * v, 0.2, 1.0)
-}
-
-fn nutrient_gradient(grid: &[[f32; GRID_SIZE]; GRID_SIZE], x: f32, y: f32) -> (f32, f32) {
-    let xi = x as usize;
-    let yi = y as usize;
-    if xi == 0 || yi == 0 || xi >= GRID_SIZE - 1 || yi >= GRID_SIZE - 1 {
-        return (0.0, 0.0);
-    }
-
-    let dx = grid[xi + 1][yi] - grid[xi - 1][yi];
-    let dy = grid[xi][yi + 1] - grid[xi][yi - 1];
-    (dx, dy)
-}
+// (nutrient helpers moved to nutrients)
 
 #[inline]
 fn in_bounds(x: f32, y: f32) -> bool {
@@ -240,83 +165,19 @@ async fn main() {
         clear_background(Color::new(0.05, 0.10, 0.35, 1.0));
 
         // Draw nutrients
-        for x in 0..GRID_SIZE {
-            for y in 0..GRID_SIZE {
-                let v = nutrients[x][y];
-                let color = nutrient_color(v);
-                draw_rectangle(
-                    x as f32 * CELL_SIZE,
-                    y as f32 * CELL_SIZE,
-                    CELL_SIZE,
-                    CELL_SIZE,
-                    color,
-                );
-            }
-        }
+        draw_nutrients(&nutrients);
 
         // Draw obstacles
-        for x in 0..GRID_SIZE {
-            for y in 0..GRID_SIZE {
-                if obstacles[x][y] {
-                    draw_rectangle(
-                        x as f32 * CELL_SIZE,
-                        y as f32 * CELL_SIZE,
-                        CELL_SIZE,
-                        CELL_SIZE,
-                        Color::new(0.05, 0.05, 0.05, 1.0),
-                    );
-                }
-            }
-        }
+        draw_obstacles(&obstacles);
 
         // Redraw all past segments to keep trails visible (with fading)
-        for segment in &segments {
-            let age_factor = 1.0 - (segment.age / MAX_SEGMENT_AGE);
-            let alpha = age_factor.clamp(0.0, 1.0);
-            let color = Color::new(1.0, 1.0, 1.0, alpha);
-            draw_line(
-                segment.from.x,
-                segment.from.y,
-                segment.to.x,
-                segment.to.y,
-                1.5,
-                color,
-            );
-        }
+        draw_segments(&segments);
 
         // Draw anastomosis connections
-        for conn in &connections {
-            if let (Some(h1), Some(h2)) = (hyphae.get(conn.hypha1), hyphae.get(conn.hypha2)) {
-                if h1.alive && h2.alive {
-                    draw_line(
-                        h1.x * CELL_SIZE,
-                        h1.y * CELL_SIZE,
-                        h2.x * CELL_SIZE,
-                        h2.y * CELL_SIZE,
-                        2.0,
-                        Color::new(0.0, 1.0, 0.5, 0.6),
-                    );
-                }
-            }
-        }
+        draw_connections(&connections, &hyphae);
 
-        // Draw fruiting bodies (simple stylized mushrooms)
-        for f in &fruit_bodies {
-            let stem_h = 10.0;
-            let stem_w = 3.0;
-            let px = f.x * CELL_SIZE;
-            let py = f.y * CELL_SIZE;
-            // stem
-            draw_rectangle(
-                px - stem_w / 2.0,
-                py - stem_h,
-                stem_w,
-                stem_h,
-                Color::new(0.9, 0.9, 0.8, 0.9),
-            );
-            // cap
-            draw_circle(px, py - stem_h, 6.0, Color::new(0.8, 0.2, 0.2, 0.9));
-        }
+        // Draw fruiting bodies
+        draw_fruit_bodies(&fruit_bodies);
 
         // Update simulation only if not paused
         if !paused {
@@ -568,12 +429,12 @@ async fn main() {
                 //draw_line(from.x, from.y, to.x, to.y, 1.5, WHITE);
 
                 // Draw bright tip
-                draw_circle(
-                    h.x * CELL_SIZE,
-                    h.y * CELL_SIZE,
-                    2.5,
-                    Color::new(1.0, 1.0, 1.0, 0.95),
-                );
+                // draw_circle(
+                //     h.x * CELL_SIZE,
+                //     h.y * CELL_SIZE,
+                //     2.5,
+                //     Color::new(1.0, 1.0, 1.0, 0.95),
+                // );
             }
 
             // Apply queued energy transfers safely after iteration
@@ -718,8 +579,8 @@ async fn main() {
         if !paused {
             fruit_cooldown_timer = (fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
             if fruit_cooldown_timer <= 0.0
-                && hyphae_count >= FRUITING_MIN_HYPHAE
-                && total_energy >= FRUITING_THRESHOLD_TOTAL_ENERGY
+                && hyphae_count >= config::FruitingConfig::MIN_HYPHAE
+                && total_energy >= config::FruitingConfig::THRESHOLD_TOTAL_ENERGY
             {
                 // energy-weighted center
                 let mut cx = 0.0f32;
@@ -740,7 +601,7 @@ async fn main() {
                     y: cy,
                     age: 0.0,
                 });
-                fruit_cooldown_timer = FRUITING_COOLDOWN;
+                fruit_cooldown_timer = config::FruitingConfig::COOLDOWN;
             }
         }
 
@@ -749,27 +610,14 @@ async fn main() {
             f.age += 0.01;
         }
 
-        // Draw statistics overlay
-        let stats_text = format!(
-            "Hyphae: {} | Spores: {} | Connections: {} | Fruits: {} | Avg Energy: {:.2} | FPS: {:.0}",
-            hyphae_count, spores_count, connections_count, fruit_bodies.len(), avg_energy, fps
-        );
-        draw_text(&stats_text, 10.0, 20.0, 20.0, WHITE);
-
-        // Draw pause indicator and controls help
-        if paused {
-            draw_text("PAUSED - Press SPACE to resume", 10.0, 45.0, 20.0, YELLOW);
-        }
-
-        // Draw controls help
-        let controls_text =
-            "Controls: SPACE=Pause | R=Reset | C=Clear | S=Spawn | N=Nutrients | LMB=Add nutrient";
-        draw_text(
-            controls_text,
-            10.0,
-            screen_height() - 20.0,
-            16.0,
-            Color::new(1.0, 1.0, 1.0, 0.7),
+        // Draw statistics overlay and help
+        draw_stats_and_help(
+            hyphae_count,
+            spores_count,
+            connections_count,
+            fruit_bodies.len(),
+            avg_energy,
+            paused,
         );
 
         next_frame().await;
