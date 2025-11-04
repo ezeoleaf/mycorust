@@ -42,6 +42,7 @@ struct Hypha {
     alive: bool,
     energy: f32,
     parent: Option<usize>,
+    age: f32,
 }
 
 #[derive(Clone)]
@@ -69,6 +70,17 @@ struct Segment {
 const MAX_SEGMENT_AGE: f32 = 10.0;
 const SEGMENT_AGE_INCREMENT: f32 = 0.01;
 
+// Fruiting bodies
+struct FruitBody {
+    x: f32,
+    y: f32,
+    age: f32,
+}
+
+const FRUITING_MIN_HYPHAE: usize = 50;
+const FRUITING_THRESHOLD_TOTAL_ENERGY: f32 = 15.0;
+const FRUITING_COOLDOWN: f32 = 10.0;
+
 fn nutrient_color(value: f32) -> Color {
     // Clamp between 0 and 1
     let v = value.clamp(0.0, 1.0);
@@ -86,6 +98,11 @@ fn nutrient_gradient(grid: &[[f32; GRID_SIZE]; GRID_SIZE], x: f32, y: f32) -> (f
     let dx = grid[xi + 1][yi] - grid[xi - 1][yi];
     let dy = grid[xi][yi + 1] - grid[xi][yi - 1];
     (dx, dy)
+}
+
+#[inline]
+fn in_bounds(x: f32, y: f32) -> bool {
+    x >= 0.0 && y >= 0.0 && x < GRID_SIZE as f32 && y < GRID_SIZE as f32
 }
 
 #[macroquad::main(window_conf)]
@@ -111,16 +128,23 @@ async fn main() {
     }
 
     // --- Initialize hyphae ---
-    let mut hyphae = vec![Hypha {
-        x: GRID_SIZE as f32 / 2.0,
-        y: GRID_SIZE as f32 / 2.0,
-        prev_x: GRID_SIZE as f32 / 2.0,
-        prev_y: GRID_SIZE as f32 / 2.0,
-        angle: rng.gen_range(0.0..std::f32::consts::TAU),
-        alive: true,
-        energy: 0.5,
-        parent: None,
-    }];
+    const INITIAL_HYPHAE_COUNT: usize = 5;
+    let mut hyphae: Vec<Hypha> = Vec::with_capacity(INITIAL_HYPHAE_COUNT);
+    for _ in 0..INITIAL_HYPHAE_COUNT {
+        let cx = GRID_SIZE as f32 / 2.0 + rng.gen_range(-10.0..10.0);
+        let cy = GRID_SIZE as f32 / 2.0 + rng.gen_range(-10.0..10.0);
+        hyphae.push(Hypha {
+            x: cx,
+            y: cy,
+            prev_x: cx,
+            prev_y: cy,
+            angle: rng.gen_range(0.0..std::f32::consts::TAU),
+            alive: true,
+            energy: 0.5,
+            parent: None,
+            age: 0.0,
+        });
+    }
 
     // --- Initialize spores ---
     let mut spores: Vec<Spore> = Vec::new();
@@ -133,6 +157,10 @@ async fn main() {
 
     // Anastomosis connections
     let mut connections: Vec<Connection> = Vec::new();
+
+    // Fruiting state
+    let mut fruit_bodies: Vec<FruitBody> = Vec::new();
+    let mut fruit_cooldown_timer: f32 = 0.0;
 
     loop {
         // Keyboard controls
@@ -155,6 +183,7 @@ async fn main() {
                 alive: true,
                 energy: 0.5,
                 parent: None,
+                age: 0.0,
             });
         }
 
@@ -177,6 +206,7 @@ async fn main() {
                 alive: true,
                 energy: 0.5,
                 parent: None,
+                age: 0.0,
             });
         }
 
@@ -270,6 +300,24 @@ async fn main() {
             }
         }
 
+        // Draw fruiting bodies (simple stylized mushrooms)
+        for f in &fruit_bodies {
+            let stem_h = 10.0;
+            let stem_w = 3.0;
+            let px = f.x * CELL_SIZE;
+            let py = f.y * CELL_SIZE;
+            // stem
+            draw_rectangle(
+                px - stem_w / 2.0,
+                py - stem_h,
+                stem_w,
+                stem_h,
+                Color::new(0.9, 0.9, 0.8, 0.9),
+            );
+            // cap
+            draw_circle(px, py - stem_h, 6.0, Color::new(0.8, 0.2, 0.2, 0.9));
+        }
+
         // Update simulation only if not paused
         if !paused {
             // Age all segments
@@ -280,11 +328,14 @@ async fn main() {
             segments.retain(|s| s.age < MAX_SEGMENT_AGE);
 
             let mut new_hyphae = vec![];
+            let mut energy_transfers: Vec<(usize, usize, f32)> = Vec::new();
             let hyphae_len = hyphae.len();
 
-            // Collect all hyphae positions and alive status first to avoid borrow conflicts
-            let hyphae_info: Vec<(f32, f32, bool)> =
-                hyphae.iter().map(|h| (h.x, h.y, h.alive)).collect();
+            // Collect all hyphae info first to avoid borrow conflicts
+            let hyphae_info: Vec<(f32, f32, bool, f32)> = hyphae
+                .iter()
+                .map(|h| (h.x, h.y, h.alive, h.energy))
+                .collect();
 
             for (idx, h) in hyphae[..hyphae_len].iter_mut().enumerate() {
                 if !h.alive {
@@ -306,12 +357,26 @@ async fn main() {
                 // Small random wander to avoid directional lock-in
                 h.angle += rng.gen_range(-ANGLE_WANDER_RANGE..ANGLE_WANDER_RANGE);
 
+                // Hyphal density slowing: count neighbors nearby and reduce effective step
+                let mut neighbor_count = 0.0f32;
+                for (ox, oy, other_alive, _) in &hyphae_info {
+                    if !*other_alive {
+                        continue;
+                    }
+                    let dx = h.x - *ox;
+                    let dy = h.y - *oy;
+                    if dx * dx + dy * dy < HYPHAE_AVOIDANCE_DISTANCE_SQ * 4.0 {
+                        neighbor_count += 1.0;
+                    }
+                }
+                let density_slow = 1.0 / (1.0 + 0.05 * neighbor_count);
+
                 // Hyphae avoidance: check if new position would be too close to another hypha
-                let new_x = h.x + h.angle.cos() * STEP_SIZE;
-                let new_y = h.y + h.angle.sin() * STEP_SIZE;
+                let new_x = h.x + h.angle.cos() * STEP_SIZE * density_slow;
+                let new_y = h.y + h.angle.sin() * STEP_SIZE * density_slow;
                 let mut too_close = false;
 
-                for (other_idx, (ox, oy, other_alive)) in hyphae_info.iter().enumerate() {
+                for (other_idx, (ox, oy, other_alive, _)) in hyphae_info.iter().enumerate() {
                     if other_idx == idx || !other_alive {
                         continue;
                     }
@@ -330,13 +395,13 @@ async fn main() {
                 }
 
                 // Move
-                h.x += h.angle.cos() * STEP_SIZE;
-                h.y += h.angle.sin() * STEP_SIZE;
+                h.x += h.angle.cos() * STEP_SIZE * density_slow;
+                h.y += h.angle.sin() * STEP_SIZE * density_slow;
 
                 // Check if new position is in an obstacle
                 let xi = h.x as usize;
                 let yi = h.y as usize;
-                if xi < GRID_SIZE && yi < GRID_SIZE && obstacles[xi][yi] {
+                if in_bounds(h.x, h.y) && obstacles[xi][yi] {
                     // Revert to previous position
                     h.x = h.prev_x;
                     h.y = h.prev_y;
@@ -356,12 +421,7 @@ async fn main() {
                         let test_yi = test_y as usize;
 
                         // Check bounds and obstacle
-                        if test_xi < GRID_SIZE
-                            && test_yi < GRID_SIZE
-                            && test_x >= 0.0
-                            && test_y >= 0.0
-                            && !obstacles[test_xi][test_yi]
-                        {
+                        if in_bounds(test_x, test_y) && !obstacles[test_xi][test_yi] {
                             best_angle = test_angle;
                             found_clear = true;
                         }
@@ -432,8 +492,9 @@ async fn main() {
                     nutrients[xi][yi] -= absorbed;
                 }
 
-                // Gradual energy decay
+                // Gradual energy decay and aging
                 h.energy *= ENERGY_DECAY_RATE;
+                h.age += 0.01;
 
                 // Die if energy depleted
                 if h.energy < MIN_ENERGY_TO_LIVE {
@@ -441,14 +502,27 @@ async fn main() {
                     continue;
                 }
 
-                // Transport to parent if exists
-                // if let Some(parent_idx) = h.parent {
-                //     if let Some(parent) = hyphae.get_mut(parent_idx) {
-                //         let transfer = 0.001 * h.energy;
-                //         h.energy -= transfer;
-                //         parent.energy = (parent.energy + transfer).min(1.0);
-                //     }
-                // }
+                // Queue energy transport to parent if exists (distance-attenuated)
+                if let Some(parent_idx) = h.parent {
+                    if parent_idx < hyphae_len {
+                        let (px, py, parent_alive, parent_energy) = hyphae_info[parent_idx];
+                        if !parent_alive { /* skip */
+                        } else {
+                            let dx = h.x - px;
+                            let dy = h.y - py;
+                            let dist = (dx * dx + dy * dy).sqrt();
+                            let max_dist = 6.0f32;
+                            if dist < max_dist {
+                                let transfer_rate = 0.002 * (1.0 - dist / max_dist).max(0.0);
+                                let wanted = (h.energy - parent_energy) * 0.5;
+                                let transfer = (wanted * transfer_rate).clamp(-0.01, 0.01);
+                                if transfer.abs() > 0.0 {
+                                    energy_transfers.push((idx, parent_idx, transfer));
+                                }
+                            }
+                        }
+                    }
+                }
 
                 if n < 0.05 && rng.gen_bool(0.001) {
                     spores.push(Spore {
@@ -462,7 +536,8 @@ async fn main() {
                 }
 
                 // Branch occasionally
-                if rng.r#gen::<f32>() < BRANCH_PROB {
+                let age_branch_boost = (1.0 + h.age * 0.05).min(2.0);
+                if rng.r#gen::<f32>() < BRANCH_PROB * age_branch_boost {
                     let idx = hyphae_len;
                     new_hyphae.push(Hypha {
                         x: h.x,
@@ -473,6 +548,7 @@ async fn main() {
                         alive: true,
                         energy: h.energy * 0.5,
                         parent: Some(idx),
+                        age: 0.0,
                     });
                     h.energy *= 0.5;
                 }
@@ -486,14 +562,8 @@ async fn main() {
                 // let color = Color::new(0.8, 0.9, 1.0, (0.2 + strength * 0.8).min(1.0));
                 // draw_line(from.x, from.y, to.x, to.y, 1.0 + strength * 2.0, color);
                 let energy_color = Color::new(0.8, 0.9, 1.0, h.energy * 0.8 + 0.2);
-                draw_line(
-                    from.x,
-                    from.y,
-                    to.x,
-                    to.y,
-                    1.0 + h.energy * 2.0,
-                    energy_color,
-                );
+                let thickness = (1.0 + h.energy * 2.0) * (1.0 + (h.age * 0.2).min(1.5));
+                draw_line(from.x, from.y, to.x, to.y, thickness, energy_color);
 
                 //draw_line(from.x, from.y, to.x, to.y, 1.5, WHITE);
 
@@ -504,6 +574,14 @@ async fn main() {
                     2.5,
                     Color::new(1.0, 1.0, 1.0, 0.95),
                 );
+            }
+
+            // Apply queued energy transfers safely after iteration
+            for (from, to, amount) in energy_transfers {
+                if from < hyphae.len() && to < hyphae.len() {
+                    hyphae[from].energy = (hyphae[from].energy - amount).clamp(0.0, 1.0);
+                    hyphae[to].energy = (hyphae[to].energy + amount).clamp(0.0, 1.0);
+                }
             }
 
             hyphae.extend(new_hyphae);
@@ -605,6 +683,7 @@ async fn main() {
                         alive: true,
                         energy: 0.5,
                         parent: None,
+                        age: 0.0,
                     });
                     spore.alive = false;
                 }
@@ -625,8 +704,9 @@ async fn main() {
         // Calculate statistics
         let alive_hyphae: Vec<_> = hyphae.iter().filter(|h| h.alive).collect();
         let hyphae_count = alive_hyphae.len();
+        let total_energy: f32 = alive_hyphae.iter().map(|h| h.energy).sum();
         let avg_energy = if hyphae_count > 0 {
-            alive_hyphae.iter().map(|h| h.energy).sum::<f32>() / hyphae_count as f32
+            total_energy / hyphae_count as f32
         } else {
             0.0
         };
@@ -634,10 +714,45 @@ async fn main() {
         let connections_count = connections.len();
         let fps = get_fps();
 
+        // Fruiting logic: cooldown and spawn based on network size and energy
+        if !paused {
+            fruit_cooldown_timer = (fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
+            if fruit_cooldown_timer <= 0.0
+                && hyphae_count >= FRUITING_MIN_HYPHAE
+                && total_energy >= FRUITING_THRESHOLD_TOTAL_ENERGY
+            {
+                // energy-weighted center
+                let mut cx = 0.0f32;
+                let mut cy = 0.0f32;
+                for h in &alive_hyphae {
+                    cx += h.x * h.energy;
+                    cy += h.y * h.energy;
+                }
+                if total_energy > 0.0 {
+                    cx /= total_energy;
+                    cy /= total_energy;
+                } else if let Some(first) = alive_hyphae.first() {
+                    cx = first.x;
+                    cy = first.y;
+                }
+                fruit_bodies.push(FruitBody {
+                    x: cx,
+                    y: cy,
+                    age: 0.0,
+                });
+                fruit_cooldown_timer = FRUITING_COOLDOWN;
+            }
+        }
+
+        // Age fruiting bodies
+        for f in &mut fruit_bodies {
+            f.age += 0.01;
+        }
+
         // Draw statistics overlay
         let stats_text = format!(
-            "Hyphae: {} | Spores: {} | Connections: {} | Avg Energy: {:.2} | FPS: {:.0}",
-            hyphae_count, spores_count, connections_count, avg_energy, fps
+            "Hyphae: {} | Spores: {} | Connections: {} | Fruits: {} | Avg Energy: {:.2} | FPS: {:.0}",
+            hyphae_count, spores_count, connections_count, fruit_bodies.len(), avg_energy, fps
         );
         draw_text(&stats_text, 10.0, 20.0, 20.0, WHITE);
 

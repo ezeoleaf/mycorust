@@ -53,9 +53,9 @@ Anastomosis should:
 - Enable resource sharing
 - Not randomly kill them
 
-### 4. Bounds Checking Duplication
+### ✅ 4. Bounds Checking Duplication - COMPLETED
 
-Both obstacle check and boundary check do similar bounds validation. Could extract to a helper.
+Both obstacle check and boundary check did similar bounds validation. Refactored with `in_bounds(x, y)` helper.
 
 ## 🟢 New Features to Add
 
@@ -69,7 +69,7 @@ if h.energy < MIN_ENERGY_TO_LIVE {
 }
 ```
 
-### 2. **Resource Transport Between Hyphae**
+### ✅ 2. **Resource Transport Between Hyphae** - COMPLETED
 
 Uncomment and fix the parent transport code. Consider distance-based transport:
 
@@ -140,7 +140,7 @@ if too_close {
 }
 ```
 
-### 6. **Age-Based Characteristics**
+### ✅ 6. **Age-Based Characteristics** - COMPLETED
 
 Add age to hyphae and make older hyphae:
 
@@ -156,7 +156,7 @@ Add age to hyphae and make older hyphae:
 - **Network visualization**: Highlight connected hyphae differently
 - **Growth direction indicators**: Small arrows showing growth direction
 
-### 8. **Multiple Spawn Points**
+### ✅ 8. **Multiple Spawn Points** - COMPLETED
 
 Allow starting from multiple locations:
 
@@ -238,7 +238,7 @@ segments.retain(|s| s.age < MAX_SEGMENT_AGE);
 
 Different nutrient types (sugar, nitrogen, etc.) that hyphae prefer differently.
 
-### 15. **Hyphal Density Effects**
+### ✅ 15. **Hyphal Density Effects** - COMPLETED
 
 Slower growth in areas with many hyphae (competition).
 
