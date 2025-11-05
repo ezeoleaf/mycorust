@@ -252,29 +252,44 @@ Slower growth in areas with many hyphae (competition).
 - `nutrients.rs` - Nutrient grid and diffusion
 - `visualization.rs` - Drawing functions
 
-### 2. Configuration Struct
+### ✅ 2. Configuration Struct - COMPLETED
 
 ```rust
-struct SimulationConfig {
-    grid_size: usize,
-    cell_size: f32,
-    branch_prob: f32,
-    step_size: f32,
-    // ... etc
+pub struct SimulationConfig {
+    pub grid_size: usize,
+    pub cell_size: f32,
+    pub branch_prob: f32,
+    pub step_size: f32,
+    // ... all simulation parameters
 }
 ```
 
-### 3. State Management
+Implemented with `Default` trait for easy initialization. All configuration values are now centralized.
+
+### ✅ 3. State Management - COMPLETED
 
 ```rust
-struct SimulationState {
-    nutrients: [[f32; GRID_SIZE]; GRID_SIZE],
-    obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
-    hyphae: Vec<Hypha>,
-    spores: Vec<Spore>,
-    segments: Vec<Segment>,
+pub struct SimulationState {
+    pub nutrients: [[f32; GRID_SIZE]; GRID_SIZE],
+    pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
+    pub hyphae: Vec<Hypha>,
+    pub spores: Vec<Spore>,
+    pub segments: Vec<Segment>,
+    pub connections: Vec<Connection>,
+    pub fruit_bodies: Vec<FruitBody>,
+    pub fruit_cooldown_timer: f32,
+    pub frame_index: u64,
+}
+
+pub struct Simulation {
+    pub state: SimulationState,
+    pub config: SimulationConfig,
+    pub paused: bool,
+    pub connections_visible: bool,
 }
 ```
+
+State is now separated from configuration and control flags. `Simulation` uses `Deref`/`DerefMut` for convenient access.
 
 ## 🎨 Visual Enhancements
 

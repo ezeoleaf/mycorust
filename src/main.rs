@@ -33,22 +33,26 @@ async fn main() {
         clear_background(Color::new(0.05, 0.10, 0.35, 1.0));
 
         // Draw nutrients
-        draw_nutrients(&sim.nutrients);
+        draw_nutrients(&sim.state.nutrients);
 
         // Draw obstacles
-        draw_obstacles(&sim.obstacles);
+        draw_obstacles(&sim.state.obstacles);
 
         // Redraw all past segments to keep trails visible (with fading)
-        draw_segments(&sim.segments);
+        draw_segments(&sim.state.segments, sim.config.max_segment_age);
 
         // Draw anastomosis connections
-        draw_connections(&sim.connections, &sim.hyphae, sim.connections_visible);
+        draw_connections(
+            &sim.state.connections,
+            &sim.state.hyphae,
+            sim.connections_visible,
+        );
 
         // Draw fruiting bodies
-        draw_fruit_bodies(&sim.fruit_bodies);
+        draw_fruit_bodies(&sim.state.fruit_bodies);
 
         // Minimap overlay
-        draw_minimap(&sim.nutrients, &sim.hyphae);
+        draw_minimap(&sim.state.nutrients, &sim.state.hyphae, sim.minimap_visible);
 
         // Update simulation only if not paused
         if !sim.paused {

@@ -2,18 +2,19 @@ use ::rand as external_rand;
 use external_rand::Rng;
 use macroquad::prelude::*;
 
-use crate::config::*;
+use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
 use crate::nutrients::nutrient_gradient;
 use crate::spore::Spore;
 use crate::types::{Connection, FruitBody, Segment};
 
 #[inline]
-fn in_bounds(x: f32, y: f32) -> bool {
-    x >= 0.0 && y >= 0.0 && x < GRID_SIZE as f32 && y < GRID_SIZE as f32
+fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
+    x >= 0.0 && y >= 0.0 && x < grid_size as f32 && y < grid_size as f32
 }
 
-pub struct Simulation {
+// Simulation state - contains all mutable state data
+pub struct SimulationState {
     pub nutrients: [[f32; GRID_SIZE]; GRID_SIZE],
     pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
     pub hyphae: Vec<Hypha>,
@@ -22,36 +23,81 @@ pub struct Simulation {
     pub connections: Vec<Connection>,
     pub fruit_bodies: Vec<FruitBody>,
     pub fruit_cooldown_timer: f32,
+    pub frame_index: u64,
+}
+
+impl SimulationState {
+    pub fn new() -> Self {
+        Self {
+            nutrients: [[0.0f32; GRID_SIZE]; GRID_SIZE],
+            obstacles: [[false; GRID_SIZE]; GRID_SIZE],
+            hyphae: Vec::new(),
+            spores: Vec::new(),
+            segments: Vec::new(),
+            connections: Vec::new(),
+            fruit_bodies: Vec::new(),
+            fruit_cooldown_timer: 0.0,
+            frame_index: 0,
+        }
+    }
+}
+
+// Simulation - contains state, config, and control flags
+pub struct Simulation {
+    pub state: SimulationState,
+    pub config: SimulationConfig,
     pub paused: bool,
     pub connections_visible: bool,
-    pub frame_index: u64,
+    pub minimap_visible: bool,
+}
+
+// Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
+impl std::ops::Deref for Simulation {
+    type Target = SimulationState;
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl std::ops::DerefMut for Simulation {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
 }
 
 impl Simulation {
     pub fn new<R: Rng>(rng: &mut R) -> Self {
-        let mut nutrients = [[0.0f32; GRID_SIZE]; GRID_SIZE];
-        for x in 0..GRID_SIZE {
-            for y in 0..GRID_SIZE {
-                let dist = ((x as f32 - 100.0).powi(2) + (y as f32 - 100.0).powi(2)).sqrt();
-                nutrients[x][y] = (1.0 - dist / 180.0).max(0.0)
+        Self::with_config(rng, SimulationConfig::default())
+    }
+
+    pub fn with_config<R: Rng>(rng: &mut R, config: SimulationConfig) -> Self {
+        let mut state = SimulationState::new();
+        let grid_size = config.grid_size;
+        let center = grid_size as f32 / 2.0;
+
+        // Initialize nutrients
+        for x in 0..grid_size {
+            for y in 0..grid_size {
+                let dist = ((x as f32 - center).powi(2) + (y as f32 - center).powi(2)).sqrt();
+                state.nutrients[x][y] = (1.0 - dist / (grid_size as f32 * 0.9)).max(0.0)
                     * rng.gen_range(0.7..1.0)
                     * (1.0 + rng.gen_range(-0.1..0.1));
             }
         }
 
-        let mut obstacles = [[false; GRID_SIZE]; GRID_SIZE];
-        for _ in 0..OBSTACLE_COUNT {
-            let x = rng.gen_range(0..GRID_SIZE);
-            let y = rng.gen_range(0..GRID_SIZE);
-            obstacles[x][y] = true;
+        // Initialize obstacles
+        for _ in 0..config.obstacle_count {
+            let x = rng.gen_range(0..grid_size);
+            let y = rng.gen_range(0..grid_size);
+            state.obstacles[x][y] = true;
         }
 
-        const INITIAL_HYPHAE_COUNT: usize = 5;
-        let mut hyphae: Vec<Hypha> = Vec::with_capacity(INITIAL_HYPHAE_COUNT);
-        for _ in 0..INITIAL_HYPHAE_COUNT {
-            let cx = GRID_SIZE as f32 / 2.0 + rng.gen_range(-10.0..10.0);
-            let cy = GRID_SIZE as f32 / 2.0 + rng.gen_range(-10.0..10.0);
-            hyphae.push(Hypha {
+        // Initialize hyphae
+        state.hyphae = Vec::with_capacity(config.initial_hyphae_count);
+        for _ in 0..config.initial_hyphae_count {
+            let cx = center + rng.gen_range(-10.0..10.0);
+            let cy = center + rng.gen_range(-10.0..10.0);
+            state.hyphae.push(Hypha {
                 x: cx,
                 y: cy,
                 prev_x: cx,
@@ -65,17 +111,11 @@ impl Simulation {
         }
 
         Self {
-            nutrients,
-            obstacles,
-            hyphae,
-            spores: Vec::new(),
-            segments: Vec::new(),
-            connections: Vec::new(),
-            fruit_bodies: Vec::new(),
-            fruit_cooldown_timer: 0.0,
+            state,
+            config,
             paused: false,
             connections_visible: true,
-            frame_index: 0,
+            minimap_visible: true,
         }
     }
 
@@ -85,16 +125,19 @@ impl Simulation {
     pub fn toggle_connections(&mut self) {
         self.connections_visible = !self.connections_visible;
     }
+    pub fn toggle_minimap(&mut self) {
+        self.minimap_visible = !self.minimap_visible;
+    }
     pub fn reset<R: Rng>(&mut self, rng: &mut R) {
-        self.hyphae.clear();
-        self.spores.clear();
-        self.segments.clear();
-        self.connections.clear();
-        self.fruit_bodies.clear();
-        self.fruit_cooldown_timer = 0.0;
-        let cx = GRID_SIZE as f32 / 2.0;
-        let cy = GRID_SIZE as f32 / 2.0;
-        self.hyphae.push(Hypha {
+        self.state.hyphae.clear();
+        self.state.spores.clear();
+        self.state.segments.clear();
+        self.state.connections.clear();
+        self.state.fruit_bodies.clear();
+        self.state.fruit_cooldown_timer = 0.0;
+        let cx = self.config.grid_size as f32 / 2.0;
+        let cy = self.config.grid_size as f32 / 2.0;
+        self.state.hyphae.push(Hypha {
             x: cx,
             y: cy,
             prev_x: cx,
@@ -107,10 +150,10 @@ impl Simulation {
         });
     }
     pub fn clear_segments(&mut self) {
-        self.segments.clear();
+        self.state.segments.clear();
     }
     pub fn spawn_hypha_at<R: Rng>(&mut self, rng: &mut R, gx: f32, gy: f32) {
-        self.hyphae.push(Hypha {
+        self.state.hyphae.push(Hypha {
             x: gx,
             y: gy,
             prev_x: gx,
@@ -123,23 +166,24 @@ impl Simulation {
         });
     }
     pub fn add_nutrient_patch(&mut self, gx: usize, gy: usize) {
+        let grid_size = self.config.grid_size;
         for dx in -3..=3 {
             for dy in -3..=3 {
-                let nx = (gx as i32 + dx).max(0).min(GRID_SIZE as i32 - 1) as usize;
-                let ny = (gy as i32 + dy).max(0).min(GRID_SIZE as i32 - 1) as usize;
+                let nx = (gx as i32 + dx).max(0).min(grid_size as i32 - 1) as usize;
+                let ny = (gy as i32 + dy).max(0).min(grid_size as i32 - 1) as usize;
                 let dist = ((dx * dx + dy * dy) as f32).sqrt();
                 if dist < 3.0 {
-                    self.nutrients[nx][ny] = 1.0;
+                    self.state.nutrients[nx][ny] = 1.0;
                 }
             }
         }
     }
     pub fn add_nutrient_cell(&mut self, gx: usize, gy: usize) {
-        self.nutrients[gx][gy] = 1.0;
+        self.state.nutrients[gx][gy] = 1.0;
     }
 
     pub fn stats(&self) -> (usize, usize, usize, usize, f32, f32) {
-        let alive_hyphae: Vec<_> = self.hyphae.iter().filter(|h| h.alive).collect();
+        let alive_hyphae: Vec<_> = self.state.hyphae.iter().filter(|h| h.alive).collect();
         let hyphae_count = alive_hyphae.len();
         let total_energy: f32 = alive_hyphae.iter().map(|h| h.energy).sum();
         let avg_energy = if hyphae_count > 0 {
@@ -147,32 +191,35 @@ impl Simulation {
         } else {
             0.0
         };
-        let spores_count = self.spores.iter().filter(|s| s.alive).count();
-        let connections_count = self.connections.len();
+        let spores_count = self.state.spores.iter().filter(|s| s.alive).count();
+        let connections_count = self.state.connections.len();
         (
             hyphae_count,
             spores_count,
             connections_count,
-            self.fruit_bodies.len(),
+            self.state.fruit_bodies.len(),
             avg_energy,
             total_energy,
         )
     }
 
     pub fn step<R: Rng>(&mut self, rng: &mut R) {
-        self.frame_index = self.frame_index.wrapping_add(1);
+        self.state.frame_index = self.state.frame_index.wrapping_add(1);
 
         // Age segments
-        for segment in &mut self.segments {
-            segment.age += SEGMENT_AGE_INCREMENT;
+        for segment in &mut self.state.segments {
+            segment.age += self.config.segment_age_increment;
         }
-        self.segments.retain(|s| s.age < MAX_SEGMENT_AGE);
+        self.state
+            .segments
+            .retain(|s| s.age < self.config.max_segment_age);
 
         let mut new_hyphae = vec![];
         let mut energy_transfers: Vec<(usize, usize, f32)> = Vec::new();
-        let hyphae_len = self.hyphae.len();
+        let hyphae_len = self.state.hyphae.len();
 
         let hyphae_info: Vec<(f32, f32, bool, f32)> = self
+            .state
             .hyphae
             .iter()
             .map(|h| (h.x, h.y, h.alive, h.energy))
@@ -180,8 +227,9 @@ impl Simulation {
 
         // Spatial hash grid for neighbor queries
         let cell_size: f32 = 4.0;
-        let nx = ((GRID_SIZE as f32) / cell_size).ceil() as usize;
-        let ny = ((GRID_SIZE as f32) / cell_size).ceil() as usize;
+        let grid_size = self.config.grid_size;
+        let nx = ((grid_size as f32) / cell_size).ceil() as usize;
+        let ny = ((grid_size as f32) / cell_size).ceil() as usize;
         let mut buckets: Vec<Vec<Vec<usize>>> = vec![vec![Vec::new(); ny]; nx];
         for (i, (x, y, alive, _)) in hyphae_info.iter().enumerate() {
             if !*alive {
@@ -198,7 +246,7 @@ impl Simulation {
             }
         }
 
-        for (idx, h) in self.hyphae[..hyphae_len].iter_mut().enumerate() {
+        for (idx, h) in self.state.hyphae[..hyphae_len].iter_mut().enumerate() {
             if !h.alive {
                 continue;
             }
@@ -206,25 +254,25 @@ impl Simulation {
             h.prev_x = h.x;
             h.prev_y = h.y;
 
-            let (mut gx, mut gy) = nutrient_gradient(&self.nutrients, h.x, h.y);
+            let (mut gx, mut gy) = nutrient_gradient(&self.state.nutrients, h.x, h.y);
             let grad_mag = (gx * gx + gy * gy).sqrt();
             // Only apply gradient steering if gradient is significant (avoid noise from small gradients)
             const MIN_GRADIENT_MAG: f32 = 0.08; // Threshold to ignore numerical noise (increased to avoid bias)
             if grad_mag > MIN_GRADIENT_MAG {
                 // Add tropism global bias only when gradient is weak (subtle drift)
                 if grad_mag < 0.15 {
-                    let tx = TROPISM_ANGLE.cos() * TROPISM_STRENGTH;
-                    let ty = TROPISM_ANGLE.sin() * TROPISM_STRENGTH;
+                    let tx = self.config.tropism_angle.cos() * self.config.tropism_strength;
+                    let ty = self.config.tropism_angle.sin() * self.config.tropism_strength;
                     gx += tx;
                     gy += ty;
                     let new_grad_mag = (gx * gx + gy * gy).sqrt();
                     if new_grad_mag > MIN_GRADIENT_MAG {
                         let grad_angle = gy.atan2(gx);
-                        h.angle += (grad_angle - h.angle) * GRADIENT_STEERING_STRENGTH;
+                        h.angle += (grad_angle - h.angle) * self.config.gradient_steering_strength;
                     }
                 } else {
                     let grad_angle = gy.atan2(gx);
-                    h.angle += (grad_angle - h.angle) * GRADIENT_STEERING_STRENGTH;
+                    h.angle += (grad_angle - h.angle) * self.config.gradient_steering_strength;
                 }
             }
             // Apply random wander - this should be symmetric, but increase it slightly when gradient is weak
@@ -233,7 +281,9 @@ impl Simulation {
             } else {
                 1.0
             };
-            h.angle += rng.gen_range(-ANGLE_WANDER_RANGE..ANGLE_WANDER_RANGE) * wander_boost;
+            h.angle += rng
+                .gen_range(-self.config.angle_wander_range..self.config.angle_wander_range)
+                * wander_boost;
 
             let mut neighbor_count = 0.0f32;
             let bx = (h.x / cell_size).floor() as isize;
@@ -258,7 +308,7 @@ impl Simulation {
                         }
                         let dx = h.x - ox;
                         let dy = h.y - oy;
-                        if dx * dx + dy * dy < HYPHAE_AVOIDANCE_DISTANCE_SQ * 4.0 {
+                        if dx * dx + dy * dy < self.config.hyphae_avoidance_distance_sq() * 4.0 {
                             neighbor_count += 1.0;
                         }
                     }
@@ -266,8 +316,8 @@ impl Simulation {
             }
             let density_slow = 1.0 / (1.0 + 0.05 * neighbor_count);
 
-            let new_x = h.x + h.angle.cos() * STEP_SIZE * density_slow;
-            let new_y = h.y + h.angle.sin() * STEP_SIZE * density_slow;
+            let new_x = h.x + h.angle.cos() * self.config.step_size * density_slow;
+            let new_y = h.y + h.angle.sin() * self.config.step_size * density_slow;
             let mut too_close = false;
             for gx in (bx - 1)..=(bx + 1) {
                 for gy in (by - 1)..=(by + 1) {
@@ -290,7 +340,7 @@ impl Simulation {
                         let dx = new_x - ox;
                         let dy = new_y - oy;
                         let dist2 = dx * dx + dy * dy;
-                        if dist2 < HYPHAE_AVOIDANCE_DISTANCE_SQ && dist2 > 0.001 {
+                        if dist2 < self.config.hyphae_avoidance_distance_sq() && dist2 > 0.001 {
                             too_close = true;
                             break;
                         }
@@ -307,12 +357,12 @@ impl Simulation {
                 h.angle += rng.gen_range(-0.5..0.5);
             }
 
-            h.x += h.angle.cos() * STEP_SIZE * density_slow;
-            h.y += h.angle.sin() * STEP_SIZE * density_slow;
+            h.x += h.angle.cos() * self.config.step_size * density_slow;
+            h.y += h.angle.sin() * self.config.step_size * density_slow;
 
             let xi = h.x as usize;
             let yi = h.y as usize;
-            if in_bounds(h.x, h.y) && self.obstacles[xi][yi] {
+            if in_bounds(h.x, h.y, self.config.grid_size) && self.state.obstacles[xi][yi] {
                 h.x = h.prev_x;
                 h.y = h.prev_y;
                 let mut found_clear = false;
@@ -320,11 +370,13 @@ impl Simulation {
                 let mut attempts = 0;
                 while !found_clear && attempts < 8 {
                     let test_angle = h.angle + (attempts as f32) * std::f32::consts::PI / 4.0;
-                    let test_x = h.x + test_angle.cos() * STEP_SIZE;
-                    let test_y = h.y + test_angle.sin() * STEP_SIZE;
+                    let test_x = h.x + test_angle.cos() * self.config.step_size;
+                    let test_y = h.y + test_angle.sin() * self.config.step_size;
                     let test_xi = test_x as usize;
                     let test_yi = test_y as usize;
-                    if in_bounds(test_x, test_y) && !self.obstacles[test_xi][test_yi] {
+                    if in_bounds(test_x, test_y, self.config.grid_size)
+                        && !self.state.obstacles[test_xi][test_yi]
+                    {
                         best_angle = test_angle;
                         found_clear = true;
                     }
@@ -339,19 +391,19 @@ impl Simulation {
                 if h.angle < 0.0 {
                     h.angle += std::f32::consts::TAU;
                 }
-                h.x += h.angle.cos() * STEP_SIZE;
-                h.y += h.angle.sin() * STEP_SIZE;
+                h.x += h.angle.cos() * self.config.step_size;
+                h.y += h.angle.sin() * self.config.step_size;
             }
 
             if h.x < 1.0
-                || h.x >= GRID_SIZE as f32 - 1.0
+                || h.x >= self.config.grid_size as f32 - 1.0
                 || h.y < 1.0
-                || h.y >= GRID_SIZE as f32 - 1.0
+                || h.y >= self.config.grid_size as f32 - 1.0
             {
                 h.x = h.prev_x;
                 h.y = h.prev_y;
                 let min_b = 1.0;
-                let max_b = GRID_SIZE as f32 - 2.0;
+                let max_b = self.config.grid_size as f32 - 2.0;
                 if h.x <= min_b {
                     h.x = min_b;
                     h.angle = std::f32::consts::PI - h.angle;
@@ -367,24 +419,24 @@ impl Simulation {
                     h.angle = -h.angle;
                 }
                 h.angle += rng.gen_range(-0.15..0.15);
-                h.x += h.angle.cos() * STEP_SIZE;
-                h.y += h.angle.sin() * STEP_SIZE;
+                h.x += h.angle.cos() * self.config.step_size;
+                h.y += h.angle.sin() * self.config.step_size;
                 h.x = h.x.clamp(min_b, max_b);
                 h.y = h.y.clamp(min_b, max_b);
             }
 
             let xi = h.x as usize;
             let yi = h.y as usize;
-            let n = self.nutrients[xi][yi];
+            let n = self.state.nutrients[xi][yi];
             if n > 0.001 {
-                let absorbed = n.min(NUTRIENT_DECAY);
+                let absorbed = n.min(self.config.nutrient_decay);
                 h.energy = (h.energy + absorbed).min(1.0);
-                self.nutrients[xi][yi] -= absorbed;
+                self.state.nutrients[xi][yi] -= absorbed;
             }
 
-            h.energy *= ENERGY_DECAY_RATE;
+            h.energy *= self.config.energy_decay_rate;
             h.age += 0.01;
-            if h.energy < MIN_ENERGY_TO_LIVE {
+            if h.energy < self.config.min_energy_to_live {
                 h.alive = false;
                 continue;
             }
@@ -410,7 +462,7 @@ impl Simulation {
             }
 
             if n < 0.05 && rng.gen_bool(0.001) {
-                self.spores.push(Spore {
+                self.state.spores.push(Spore {
                     x: h.x,
                     y: h.y,
                     vx: rng.gen_range(-0.5..0.5),
@@ -421,7 +473,7 @@ impl Simulation {
             }
 
             let age_branch_boost = (1.0 + h.age * 0.05).min(2.0);
-            if rng.gen::<f32>() < BRANCH_PROB * age_branch_boost {
+            if rng.gen::<f32>() < self.config.branch_prob * age_branch_boost {
                 let idxp = hyphae_len;
                 new_hyphae.push(Hypha {
                     x: h.x,
@@ -437,93 +489,110 @@ impl Simulation {
                 h.energy *= 0.5;
             }
 
-            let from = vec2(h.prev_x * CELL_SIZE, h.prev_y * CELL_SIZE);
-            let to = vec2(h.x * CELL_SIZE, h.y * CELL_SIZE);
-            self.segments.push(Segment { from, to, age: 0.0 });
+            let from = vec2(
+                h.prev_x * self.config.cell_size,
+                h.prev_y * self.config.cell_size,
+            );
+            let to = vec2(h.x * self.config.cell_size, h.y * self.config.cell_size);
+            self.state.segments.push(Segment { from, to, age: 0.0 });
         }
 
         for (from, to, amount) in energy_transfers {
-            if from < self.hyphae.len() && to < self.hyphae.len() {
-                self.hyphae[from].energy = (self.hyphae[from].energy - amount).clamp(0.0, 1.0);
-                self.hyphae[to].energy = (self.hyphae[to].energy + amount).clamp(0.0, 1.0);
+            if from < self.state.hyphae.len() && to < self.state.hyphae.len() {
+                self.state.hyphae[from].energy =
+                    (self.state.hyphae[from].energy - amount).clamp(0.0, 1.0);
+                self.state.hyphae[to].energy =
+                    (self.state.hyphae[to].energy + amount).clamp(0.0, 1.0);
             }
         }
 
-        self.hyphae.extend(new_hyphae);
+        self.state.hyphae.extend(new_hyphae);
 
         // connections
-        for i in 0..self.hyphae.len() {
-            for j in (i + 1)..self.hyphae.len() {
-                if !self.hyphae[i].alive || !self.hyphae[j].alive {
+        for i in 0..self.state.hyphae.len() {
+            for j in (i + 1)..self.state.hyphae.len() {
+                if !self.state.hyphae[i].alive || !self.state.hyphae[j].alive {
                     continue;
                 }
-                let dx = self.hyphae[i].x - self.hyphae[j].x;
-                let dy = self.hyphae[i].y - self.hyphae[j].y;
+                let dx = self.state.hyphae[i].x - self.state.hyphae[j].x;
+                let dy = self.state.hyphae[i].y - self.state.hyphae[j].y;
                 let dist2 = dx * dx + dy * dy;
-                if dist2 < ANASTOMOSIS_DISTANCE_SQ {
-                    let exists = self.connections.iter().any(|c| {
+                if dist2 < self.config.anastomosis_distance_sq() {
+                    let exists = self.state.connections.iter().any(|c| {
                         (c.hypha1 == i && c.hypha2 == j) || (c.hypha1 == j && c.hypha2 == i)
                     });
                     if !exists {
-                        self.connections.push(Connection {
+                        self.state.connections.push(Connection {
                             hypha1: i,
                             hypha2: j,
                         });
-                        let energy_diff = self.hyphae[i].energy - self.hyphae[j].energy;
+                        let energy_diff = self.state.hyphae[i].energy - self.state.hyphae[j].energy;
                         if energy_diff.abs() > 0.1 {
                             let transfer = energy_diff * 0.1;
-                            self.hyphae[i].energy -= transfer;
-                            self.hyphae[j].energy += transfer;
-                            self.hyphae[i].energy = self.hyphae[i].energy.clamp(0.0, 1.0);
-                            self.hyphae[j].energy = self.hyphae[j].energy.clamp(0.0, 1.0);
+                            self.state.hyphae[i].energy -= transfer;
+                            self.state.hyphae[j].energy += transfer;
+                            self.state.hyphae[i].energy =
+                                self.state.hyphae[i].energy.clamp(0.0, 1.0);
+                            self.state.hyphae[j].energy =
+                                self.state.hyphae[j].energy.clamp(0.0, 1.0);
                         }
                     }
                 }
             }
         }
-        self.connections.retain(|c| {
-            self.hyphae.get(c.hypha1).map(|h| h.alive).unwrap_or(false)
-                && self.hyphae.get(c.hypha2).map(|h| h.alive).unwrap_or(false)
+        self.state.connections.retain(|c| {
+            self.state
+                .hyphae
+                .get(c.hypha1)
+                .map(|h| h.alive)
+                .unwrap_or(false)
+                && self
+                    .state
+                    .hyphae
+                    .get(c.hypha2)
+                    .map(|h| h.alive)
+                    .unwrap_or(false)
         });
 
         // Resource allocation along connections (diffusive flow)
-        for c in &self.connections {
+        for c in &self.state.connections {
             let (i, j) = if c.hypha1 <= c.hypha2 {
                 (c.hypha1, c.hypha2)
             } else {
                 (c.hypha2, c.hypha1)
             };
-            if j >= self.hyphae.len() {
+            if j >= self.state.hyphae.len() {
                 continue;
             }
-            let (left, right) = self.hyphae.split_at_mut(j);
+            let (left, right) = self.state.hyphae.split_at_mut(j);
             let h1 = &mut left[i];
             let h2 = &mut right[0];
             if !h1.alive || !h2.alive {
                 continue;
             }
             let diff = h1.energy - h2.energy;
-            let flow = (diff * CONNECTION_FLOW_RATE).clamp(-0.02, 0.02);
+            let flow = (diff * self.config.connection_flow_rate).clamp(-0.02, 0.02);
             h1.energy = (h1.energy - flow).clamp(0.0, 1.0);
             h2.energy = (h2.energy + flow).clamp(0.0, 1.0);
         }
 
         // diffuse nutrients (LOD: bounding box + frame skipping)
         let do_diffuse = if get_fps() < 45 {
-            (self.frame_index % 2) == 0
+            (self.state.frame_index % 2) == 0
         } else {
             true
         };
         if do_diffuse {
             // Compute bounding box around alive hyphae
-            let mut minx = GRID_SIZE - 2;
-            let mut miny = GRID_SIZE - 2;
+            let grid_size = self.config.grid_size;
+            let mut minx = grid_size - 2;
+            let mut miny = grid_size - 2;
             let mut maxx = 1;
             let mut maxy = 1;
-            for h in self.hyphae.iter().filter(|h| h.alive) {
+            for h in self.state.hyphae.iter().filter(|h| h.alive) {
                 let xi = h.x as usize;
                 let yi = h.y as usize;
-                if xi > 0 && yi > 0 && xi < GRID_SIZE - 1 && yi < GRID_SIZE - 1 {
+                if xi > 0 && yi > 0 && xi < grid_size - 1 && yi < grid_size - 1 {
                     if xi < minx {
                         minx = xi;
                     }
@@ -541,26 +610,27 @@ impl Simulation {
             let pad = 6usize;
             let x0 = 1.max(minx.saturating_sub(pad));
             let y0 = 1.max(miny.saturating_sub(pad));
-            let x1 = (GRID_SIZE - 2).min(maxx.saturating_add(pad));
-            let y1 = (GRID_SIZE - 2).min(maxy.saturating_add(pad));
+            let x1 = (grid_size - 2).min(maxx.saturating_add(pad));
+            let y1 = (grid_size - 2).min(maxy.saturating_add(pad));
 
-            let mut diffused = self.nutrients.clone();
+            let mut diffused = self.state.nutrients.clone();
             for x in x0..=x1 {
                 for y in y0..=y1 {
-                    let avg = (self.nutrients[x + 1][y]
-                        + self.nutrients[x - 1][y]
-                        + self.nutrients[x][y + 1]
-                        + self.nutrients[x][y - 1])
+                    let avg = (self.state.nutrients[x + 1][y]
+                        + self.state.nutrients[x - 1][y]
+                        + self.state.nutrients[x][y + 1]
+                        + self.state.nutrients[x][y - 1])
                         * 0.25;
-                    diffused[x][y] += DIFFUSION_RATE * (avg - self.nutrients[x][y]);
+                    diffused[x][y] +=
+                        self.config.diffusion_rate * (avg - self.state.nutrients[x][y]);
                 }
             }
-            self.nutrients = diffused;
+            self.state.nutrients = diffused;
         }
 
         // spores
         let mut new_hyphae_from_spores = vec![];
-        for spore in &mut self.spores {
+        for spore in &mut self.state.spores {
             if !spore.alive {
                 continue;
             }
@@ -570,16 +640,16 @@ impl Simulation {
             spore.vx += rng.gen_range(-0.02..0.02);
             spore.vy += rng.gen_range(-0.02..0.02);
             if spore.x < 1.0
-                || spore.x >= GRID_SIZE as f32 - 1.0
+                || spore.x >= self.config.grid_size as f32 - 1.0
                 || spore.y < 1.0
-                || spore.y >= GRID_SIZE as f32 - 1.0
+                || spore.y >= self.config.grid_size as f32 - 1.0
             {
                 spore.alive = false;
                 continue;
             }
             let xi = spore.x as usize;
             let yi = spore.y as usize;
-            if self.nutrients[xi][yi] > SPORE_GERMINATION_THRESHOLD {
+            if self.state.nutrients[xi][yi] > self.config.spore_germination_threshold {
                 new_hyphae_from_spores.push(Hypha {
                     x: spore.x,
                     y: spore.y,
@@ -596,25 +666,28 @@ impl Simulation {
                 for k in 0..8 {
                     let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
                     let r = rng.gen_range(2.0..5.0);
-                    let px = spore.x * CELL_SIZE + a.cos() * r;
-                    let py = spore.y * CELL_SIZE + a.sin() * r;
+                    let px = spore.x * self.config.cell_size + a.cos() * r;
+                    let py = spore.y * self.config.cell_size + a.sin() * r;
                     draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
                 }
             }
         }
-        self.hyphae.extend(new_hyphae_from_spores);
-        self.spores.retain(|s| s.alive && s.age < SPORE_MAX_AGE);
+        self.state.hyphae.extend(new_hyphae_from_spores);
+        self.state
+            .spores
+            .retain(|s| s.alive && s.age < self.config.spore_max_age);
 
         // fruiting
         let (hyphae_count, _spores_count, _conn_count, _fruit_count, _avg_energy, total_energy) =
             self.stats();
         let fps = get_fps();
-        self.fruit_cooldown_timer = (self.fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
-        if self.fruit_cooldown_timer <= 0.0
-            && hyphae_count >= FruitingConfig::MIN_HYPHAE
-            && total_energy >= FruitingConfig::THRESHOLD_TOTAL_ENERGY
+        self.state.fruit_cooldown_timer =
+            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
+        if self.state.fruit_cooldown_timer <= 0.0
+            && hyphae_count >= self.config.fruiting_min_hyphae
+            && total_energy >= self.config.fruiting_threshold_total_energy
         {
-            let alive_hyphae: Vec<_> = self.hyphae.iter().filter(|h| h.alive).collect();
+            let alive_hyphae: Vec<_> = self.state.hyphae.iter().filter(|h| h.alive).collect();
             let mut cx = 0.0f32;
             let mut cy = 0.0f32;
             for h in &alive_hyphae {
@@ -628,14 +701,14 @@ impl Simulation {
                 cx = first.x;
                 cy = first.y;
             }
-            self.fruit_bodies.push(FruitBody {
+            self.state.fruit_bodies.push(FruitBody {
                 x: cx,
                 y: cy,
                 age: 0.0,
             });
-            self.fruit_cooldown_timer = FruitingConfig::COOLDOWN;
+            self.state.fruit_cooldown_timer = self.config.fruiting_cooldown;
         }
-        for f in &mut self.fruit_bodies {
+        for f in &mut self.state.fruit_bodies {
             f.age += 0.01;
         }
     }

@@ -37,7 +37,7 @@ pub fn draw_obstacles(obstacles: &[[bool; GRID_SIZE]; GRID_SIZE]) {
     }
 }
 
-pub fn draw_segments(segments: &Vec<Segment>) {
+pub fn draw_segments(segments: &Vec<Segment>, max_segment_age: f32) {
     let fps = get_fps();
     let step = if fps < 30 {
         3
@@ -50,7 +50,7 @@ pub fn draw_segments(segments: &Vec<Segment>) {
         if i % step != 0 {
             continue;
         }
-        let age_factor = 1.0 - (segment.age / MAX_SEGMENT_AGE);
+        let age_factor = 1.0 - (segment.age / max_segment_age);
         let alpha = age_factor.clamp(0.0, 1.0);
         let color = Color::new(1.0, 1.0, 1.0, alpha);
         draw_line(
@@ -93,7 +93,14 @@ pub fn draw_connections(
     }
 }
 
-pub fn draw_minimap(nutrients: &[[f32; GRID_SIZE]; GRID_SIZE], hyphae: &Vec<Hypha>) {
+pub fn draw_minimap(
+    nutrients: &[[f32; GRID_SIZE]; GRID_SIZE],
+    hyphae: &Vec<Hypha>,
+    minimap_visible: bool,
+) {
+    if !minimap_visible {
+        return;
+    }
     // Minimap size
     let map_scale = 0.25f32;
     let w = GRID_SIZE as f32 * map_scale;
@@ -167,10 +174,18 @@ pub fn draw_stats_and_help(
     if paused {
         draw_text("PAUSED - Press SPACE to resume", 10.0, 45.0, 20.0, YELLOW);
     }
-    let controls_text =
-        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Toggle Connections | S=Spawn | N=Nutrients | LMB=Add nutrient";
+    let controls_part1_text =
+        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Toggle Connections | M=Toggle Minimap";
     draw_text(
-        controls_text,
+        controls_part1_text,
+        10.0,
+        screen_height() - 40.0,
+        16.0,
+        Color::new(1.0, 1.0, 1.0, 0.7),
+    );
+    let controls_part2_text = "S=Spawn | N=Nutrients | LMB=Add nutrient";
+    draw_text(
+        controls_part2_text,
         10.0,
         screen_height() - 20.0,
         16.0,
