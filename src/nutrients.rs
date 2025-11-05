@@ -9,12 +9,21 @@ pub fn nutrient_color(value: f32) -> Color {
 pub fn nutrient_gradient(grid: &[[f32; GRID_SIZE]; GRID_SIZE], x: f32, y: f32) -> (f32, f32) {
     let xi = x as usize;
     let yi = y as usize;
-    if xi == 0 || yi == 0 || xi >= GRID_SIZE - 1 || yi >= GRID_SIZE - 1 {
+    if xi < 1 || yi < 1 || xi >= GRID_SIZE - 1 || yi >= GRID_SIZE - 1 {
         return (0.0, 0.0);
     }
-    let dx = grid[xi + 1][yi] - grid[xi - 1][yi];
-    let dy = grid[xi][yi + 1] - grid[xi][yi - 1];
-    (dx, dy)
+    // Sobel-like gradient for smoother chemotaxis
+    let a11 = grid[xi - 1][yi - 1];
+    let a12 = grid[xi - 1][yi];
+    let a13 = grid[xi - 1][yi + 1];
+    let a21 = grid[xi][yi - 1];
+    let a23 = grid[xi][yi + 1];
+    let a31 = grid[xi + 1][yi - 1];
+    let a32 = grid[xi + 1][yi];
+    let a33 = grid[xi + 1][yi + 1];
+    let gx = (a31 + 2.0 * a32 + a33) - (a11 + 2.0 * a12 + a13);
+    let gy = (a13 + 2.0 * a23 + a33) - (a11 + 2.0 * a21 + a31);
+    (gx, gy)
 }
 
 

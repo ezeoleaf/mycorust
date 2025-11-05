@@ -15,6 +15,9 @@ pub const NUTRIENT_DECAY: f32 = 0.01;
 pub const DIFFUSION_RATE: f32 = 0.05;
 pub const SPORE_GERMINATION_THRESHOLD: f32 = 0.6;
 pub const SPORE_MAX_AGE: f32 = 5.0;
+// Chemotaxis/tropism
+pub const TROPISM_ANGLE: f32 = std::f32::consts::FRAC_PI_4; // 45 degrees global bias
+pub const TROPISM_STRENGTH: f32 = 0.01; // weight of global bias vs gradient (only when gradient is weak)
 
 // Obstacles
 pub const OBSTACLE_COUNT: usize = 300;
@@ -26,6 +29,7 @@ pub const MIN_ENERGY_TO_LIVE: f32 = 0.01;
 // Anastomosis
 pub const ANASTOMOSIS_DISTANCE: f32 = 2.0;
 pub const ANASTOMOSIS_DISTANCE_SQ: f32 = ANASTOMOSIS_DISTANCE * ANASTOMOSIS_DISTANCE;
+pub const CONNECTION_FLOW_RATE: f32 = 0.02; // per-step energy flow along connections
 
 // Hyphae avoidance/density
 pub const HYPHAE_AVOIDANCE_DISTANCE: f32 = 2.0;
@@ -42,5 +46,3 @@ impl FruitingConfig {
     pub const THRESHOLD_TOTAL_ENERGY: f32 = 15.0;
     pub const COOLDOWN: f32 = 10.0;
 }
-
-

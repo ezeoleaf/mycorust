@@ -3,7 +3,6 @@ use macroquad::prelude::Vec2;
 pub struct Connection {
     pub hypha1: usize,
     pub hypha2: usize,
-    pub strength: f32,
 }
 
 pub struct Segment {

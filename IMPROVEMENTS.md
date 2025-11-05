@@ -244,7 +244,7 @@ Slower growth in areas with many hyphae (competition).
 
 ## 🔧 Code Structure Improvements
 
-### 1. Split into Modules
+### 1. Split into Modules - COMPLETED
 
 - `simulation.rs` - Core simulation logic
 - `hypha.rs` - Hypha struct and methods
@@ -278,22 +278,22 @@ struct SimulationState {
 
 ## 🎨 Visual Enhancements
 
-1. **Color gradients** based on energy/age
-2. **Particle effects** when spores germinate
-3. **Pulsing** at anastomosis points
-4. **Depth cues** - older hyphae darker/more transparent
-5. **Minimap** showing overall network structure
+1. ✅ **Color gradients** based on energy/age (connections pulse + age fade)
+2. ✅ **Particle effects** when spores germinate
+3. ✅ **Pulsing** at anastomosis points
+4. ✅ **Depth cues** - older hyphae darker/more transparent
+5. ✅ **Minimap** showing overall network structure
 
 ## 📊 Performance Optimizations
 
-1. **Spatial partitioning** for hyphae collision checks
-2. **Batch rendering** for segments
-3. **LOD (Level of Detail)** - reduce detail when FPS drops
-4. **Conditional updates** - only update visible areas
+1. ✅ **Spatial partitioning** for hyphae collision checks (uniform grid buckets)
+2. ✅ **Batch rendering** for segments (FPS-based decimation of draw calls)
+3. ✅ **LOD (Level of Detail)** - reduce detail when FPS drops (diffusion/frame skip, draw decimation)
+4. ✅ **Conditional updates** - only update visible areas (diffusion limited to hyphae bounding box)
 
 ## 🧪 Scientific Accuracy
 
-1. **Chemotaxis** - more realistic gradient following
-2. **Tropism** - response to different stimuli
-3. **Mycelial network topology** - proper graph structure
-4. **Resource allocation** - more realistic energy distribution
+1. ✅ **Chemotaxis** - more realistic gradient following (Sobel gradient, smoother steering)
+2. ✅ **Tropism** - response to different stimulations (global tropism vector bias)
+3. ✅ **Mycelial network topology** - proper graph structure (connections as graph; energy flow)
+4. ✅ **Resource allocation** - more realistic energy distribution (diffusive flow along connections)

@@ -25,19 +25,24 @@ cargo run --release
 - Anastomosis: nearby hyphae connect; simple energy balancing along connections.
 - Trails persist and fade over time; old segments are removed to limit memory growth.
 - Live statistics overlay (Hyphae, Spores, Connections, Avg Energy, FPS).
+- Minimap overlay showing nutrients and live hyphae positions.
+- Pulsing, age-faded anastomosis connection visualization (toggle).
+- Performance optimizations: spatial hashing, FPS-based draw decimation, LOD diffusion.
+- Scientific tweaks: Sobel chemotaxis and global tropism bias.
 
 ### Controls
 
 - SPACE: Pause/Resume
 - R: Reset simulation
 - C: Clear trails
+- X: Toggle connections visibility
 - S: Spawn a new hypha at mouse position
 - N: Add a nutrient patch at mouse position (small radius)
 - Left Mouse Button: Add a single high-nutrient cell at mouse
 
 Controls help is shown at the bottom of the screen.
 
-### Key parameters (in `src/main.rs`)
+### Key parameters (in `src/config.rs`)
 
 - GRID/Display
 
@@ -56,6 +61,7 @@ Controls help is shown at the bottom of the screen.
   - `NUTRIENT_DECAY: f32` — max nutrient absorbed per step at a tip.
   - `DIFFUSION_RATE: f32` — how quickly nutrients diffuse across neighbors.
   - `SPORE_GERMINATION_THRESHOLD: f32` — nutrient threshold for spores to germinate.
+  - `TROPISM_ANGLE: f32`, `TROPISM_STRENGTH: f32` — global tropism bias.
 
 - Energy
 
@@ -65,6 +71,7 @@ Controls help is shown at the bottom of the screen.
 - Networking
 
   - `ANASTOMOSIS_DISTANCE: f32` — distance within which hyphae connect.
+  - `CONNECTION_FLOW_RATE: f32` — diffusive energy flow along connections.
 
 - Avoidance
 
@@ -84,7 +91,7 @@ You can tweak these constants to change speed, density, network behavior, and lo
 ### Troubleshooting
 
 - If the window is too large, lower `GRID_SIZE` or `CELL_SIZE`.
-- If performance is low, use `cargo run --release` and/or reduce `GRID_SIZE`.
+- If performance is low, use `cargo run --release` and/or reduce `GRID_SIZE`. You can also toggle connections (X) or lower `MAX_SEGMENT_AGE`.
 - If trails overwhelm the scene, reduce `MAX_SEGMENT_AGE` or increase `SEGMENT_AGE_INCREMENT`.
 
 ### License
