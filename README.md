@@ -50,6 +50,12 @@ cargo run --release
 
 Controls help is shown at the bottom of the screen.
 
+### Screenshots
+
+<img width="791" height="787" alt="image" src="https://github.com/user-attachments/assets/7b6d543a-1bf9-4ed5-8ebc-1a50abeb231d" />
+
+<img width="798" height="800" alt="image" src="https://github.com/user-attachments/assets/aaa66872-d5fc-463e-a803-447af60607a4" />
+
 ### Configuration
 
 The simulation uses a `SimulationConfig` struct for all parameters, located in `src/config.rs`. You can customize the simulation by creating a custom config:
