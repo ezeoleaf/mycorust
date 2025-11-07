@@ -3,6 +3,7 @@ use macroquad::prelude::*;
 use crate::config::*;
 use crate::hypha::Hypha;
 use crate::nutrients::{nutrient_color, NutrientGrid};
+use crate::simulation::EditorTool;
 use crate::types::{Connection, FruitBody, Segment};
 
 pub fn draw_nutrients(nutrients: &NutrientGrid) {
@@ -200,6 +201,89 @@ pub fn draw_fruit_bodies(fruit_bodies: &[FruitBody], hyphae: &[crate::hypha::Hyp
     }
 }
 
+pub fn draw_editor_ui(
+    tool: EditorTool,
+    brush_size: usize,
+    mouse_x: f32,
+    mouse_y: f32,
+    cell_size: f32,
+    grid_size: usize,
+) {
+    // Draw editor mode banner
+    let banner_text = "EDITOR MODE";
+    let banner_width = 200.0;
+    let banner_height = 40.0;
+    let banner_x = screen_width() / 2.0 - banner_width / 2.0;
+    let banner_y = 10.0;
+
+    // Banner background
+    draw_rectangle(
+        banner_x - 5.0,
+        banner_y - 5.0,
+        banner_width + 10.0,
+        banner_height + 10.0,
+        Color::new(0.0, 0.0, 0.0, 0.7),
+    );
+    draw_text(
+        banner_text,
+        banner_x + banner_width / 2.0 - 60.0,
+        banner_y + 25.0,
+        30.0,
+        Color::new(1.0, 0.8, 0.2, 1.0),
+    );
+
+    // Tool indicator
+    let tool_text = match tool {
+        EditorTool::Sugar => "Tool: Sugar (1)",
+        EditorTool::Nitrogen => "Tool: Nitrogen (2)",
+        EditorTool::Erase => "Tool: Erase (3)",
+    };
+    draw_text(tool_text, 10.0, screen_height() - 140.0, 18.0, WHITE);
+
+    // Brush size indicator
+    let brush_text = format!("Brush Size: {} (+/-)", brush_size);
+    draw_text(&brush_text, 10.0, screen_height() - 120.0, 18.0, WHITE);
+
+    // Instructions
+    draw_text(
+        "Press ENTER to start simulation",
+        10.0,
+        screen_height() - 100.0,
+        18.0,
+        Color::new(0.2, 1.0, 0.2, 1.0),
+    );
+    draw_text(
+        "Press E to exit editor mode",
+        10.0,
+        screen_height() - 80.0,
+        18.0,
+        Color::new(1.0, 1.0, 1.0, 0.7),
+    );
+
+    // Draw brush preview at mouse position
+    let gx = (mouse_x / cell_size).clamp(0.0, grid_size as f32 - 1.0);
+    let gy = (mouse_y / cell_size).clamp(0.0, grid_size as f32 - 1.0);
+    let preview_radius = brush_size as f32 * cell_size;
+    let preview_color = match tool {
+        EditorTool::Sugar => Color::new(0.8, 0.6, 0.2, 0.3),
+        EditorTool::Nitrogen => Color::new(0.2, 0.4, 0.8, 0.3),
+        EditorTool::Erase => Color::new(0.8, 0.2, 0.2, 0.3),
+    };
+    draw_circle(
+        gx * cell_size + cell_size / 2.0,
+        gy * cell_size + cell_size / 2.0,
+        preview_radius,
+        preview_color,
+    );
+    draw_circle_lines(
+        gx * cell_size + cell_size / 2.0,
+        gy * cell_size + cell_size / 2.0,
+        preview_radius,
+        2.0,
+        Color::new(preview_color.r, preview_color.g, preview_color.b, 0.8),
+    );
+}
+
 pub fn draw_stats_and_help(
     hyphae_count: usize,
     spores_count: usize,
@@ -208,6 +292,7 @@ pub fn draw_stats_and_help(
     avg_energy: f32,
     paused: bool,
     speed_multiplier: f32,
+    editor_mode: bool,
 ) {
     let fps = get_fps();
     let stats_part1_text = format!(
@@ -246,4 +331,15 @@ pub fn draw_stats_and_help(
         16.0,
         Color::new(1.0, 1.0, 1.0, 0.7),
     );
+
+    if !editor_mode {
+        let controls_part4_text = "Editor: E = Toggle Editor Mode";
+        draw_text(
+            controls_part4_text,
+            10.0,
+            screen_height() - 80.0,
+            16.0,
+            Color::new(1.0, 1.0, 1.0, 0.7),
+        );
+    }
 }

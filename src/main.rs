@@ -15,8 +15,8 @@ use config::*;
 use controls::handle_controls;
 use simulation::Simulation;
 use visualization::{
-    draw_connections, draw_fruit_bodies, draw_minimap, draw_nutrients, draw_obstacles,
-    draw_segments, draw_stats_and_help,
+    draw_connections, draw_editor_ui, draw_fruit_bodies, draw_minimap, draw_nutrients,
+    draw_obstacles, draw_segments, draw_stats_and_help,
 };
 
 #[macroquad::main(window_conf)]
@@ -74,6 +74,19 @@ async fn main() {
         let (hyphae_count, spores_count, connections_count, fruit_count, avg_energy, _total_energy) =
             sim.stats();
 
+        // Draw editor UI if in editor mode
+        if sim.editor_mode {
+            let (mx, my) = mouse_position();
+            draw_editor_ui(
+                sim.editor_tool,
+                sim.editor_brush_size,
+                mx,
+                my,
+                sim.config.cell_size,
+                sim.config.grid_size,
+            );
+        }
+
         // Draw statistics overlay and help
         draw_stats_and_help(
             hyphae_count,
@@ -83,6 +96,7 @@ async fn main() {
             avg_energy,
             sim.paused,
             sim.speed_multiplier,
+            sim.editor_mode,
         );
 
         next_frame().await;

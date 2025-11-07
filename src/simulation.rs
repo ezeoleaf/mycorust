@@ -63,6 +63,14 @@ impl SimulationState {
     }
 }
 
+// Editor tool types
+#[derive(Clone, Copy, PartialEq)]
+pub enum EditorTool {
+    Sugar,
+    Nitrogen,
+    Erase,
+}
+
 // Simulation - contains state, config, and control flags
 pub struct Simulation {
     pub state: SimulationState,
@@ -73,6 +81,11 @@ pub struct Simulation {
     pub hyphae_visible: bool,
     pub speed_multiplier: f32,
     pub speed_accumulator: f32,
+    // Editor mode
+    pub editor_mode: bool,
+    pub editor_tool: EditorTool,
+    pub editor_brush_size: usize,
+    pub editor_last_draw_pos: Option<(usize, usize)>,
 }
 
 // Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
@@ -136,6 +149,10 @@ impl Simulation {
             hyphae_visible: true,
             speed_multiplier: 1.0,
             speed_accumulator: 0.0,
+            editor_mode: false,
+            editor_tool: EditorTool::Sugar,
+            editor_brush_size: 3,
+            editor_last_draw_pos: None,
         }
     }
 
@@ -259,6 +276,86 @@ impl Simulation {
     }
     pub fn reset_speed(&mut self) {
         self.speed_multiplier = 1.0;
+    }
+    pub fn toggle_editor_mode(&mut self) {
+        self.editor_mode = !self.editor_mode;
+        if self.editor_mode {
+            self.paused = true; // Auto-pause when entering editor mode
+        } else {
+            self.editor_last_draw_pos = None; // Reset draw position when exiting
+        }
+    }
+    pub fn set_editor_tool(&mut self, tool: EditorTool) {
+        self.editor_tool = tool;
+    }
+    pub fn start_simulation_from_editor<R: Rng>(&mut self, rng: &mut R) {
+        // Clear existing hyphae and start fresh
+        self.state.hyphae.clear();
+        self.state.spores.clear();
+        self.state.segments.clear();
+        self.state.connections.clear();
+        self.state.fruit_bodies.clear();
+        self.state.fruit_cooldown_timer = 0.0;
+
+        // Spawn initial hyphae at center
+        let center = self.config.grid_size as f32 / 2.0;
+        for _ in 0..self.config.initial_hyphae_count {
+            let cx = center + rng.gen_range(-10.0..10.0);
+            let cy = center + rng.gen_range(-10.0..10.0);
+            self.state.hyphae.push(Hypha {
+                x: cx,
+                y: cy,
+                prev_x: cx,
+                prev_y: cy,
+                angle: rng.gen_range(0.0..std::f32::consts::TAU),
+                alive: true,
+                energy: 0.5,
+                parent: None,
+                age: 0.0,
+            });
+        }
+
+        // Exit editor mode and unpause
+        self.editor_mode = false;
+        self.paused = false;
+        self.editor_last_draw_pos = None;
+    }
+    pub fn editor_draw_at(&mut self, gx: usize, gy: usize) {
+        // Only draw if position changed or first draw
+        if let Some((last_x, last_y)) = self.editor_last_draw_pos {
+            if last_x == gx && last_y == gy {
+                return; // Skip if same cell
+            }
+        }
+        self.editor_last_draw_pos = Some((gx, gy));
+
+        let grid_size = self.config.grid_size;
+        let brush_size = self.editor_brush_size;
+
+        for dx in -(brush_size as i32)..=(brush_size as i32) {
+            for dy in -(brush_size as i32)..=(brush_size as i32) {
+                let nx = (gx as i32 + dx).max(0).min(grid_size as i32 - 1) as usize;
+                let ny = (gy as i32 + dy).max(0).min(grid_size as i32 - 1) as usize;
+                let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                if dist <= brush_size as f32 {
+                    let intensity = 1.0 - (dist / brush_size as f32).min(1.0);
+                    match self.editor_tool {
+                        EditorTool::Sugar => {
+                            self.state.nutrients.add_sugar(nx, ny, intensity * 0.1);
+                        }
+                        EditorTool::Nitrogen => {
+                            self.state.nutrients.add_nitrogen(nx, ny, intensity * 0.1);
+                        }
+                        EditorTool::Erase => {
+                            self.state.nutrients.sugar[nx][ny] =
+                                (self.state.nutrients.sugar[nx][ny] - intensity * 0.1).max(0.0);
+                            self.state.nutrients.nitrogen[nx][ny] =
+                                (self.state.nutrients.nitrogen[nx][ny] - intensity * 0.1).max(0.0);
+                        }
+                    }
+                }
+            }
+        }
     }
     pub fn reset<R: Rng>(&mut self, rng: &mut R) {
         self.state.hyphae.clear();
