@@ -39,7 +39,11 @@ async fn main() {
         draw_obstacles(&sim.state.obstacles);
 
         // Redraw all past segments to keep trails visible (with fading)
-        draw_segments(&sim.state.segments, sim.config.max_segment_age);
+        draw_segments(
+            &sim.state.segments,
+            sim.config.max_segment_age,
+            sim.hyphae_visible,
+        );
 
         // Draw anastomosis connections
         draw_connections(
@@ -48,15 +52,22 @@ async fn main() {
             sim.connections_visible,
         );
 
-        // Draw fruiting bodies
-        draw_fruit_bodies(&sim.state.fruit_bodies);
+        // Draw fruiting bodies with energy transfer visualization
+        draw_fruit_bodies(&sim.state.fruit_bodies, &sim.state.hyphae);
 
         // Minimap overlay
         draw_minimap(&sim.state.nutrients, &sim.state.hyphae, sim.minimap_visible);
 
         // Update simulation only if not paused
+        // Handle speed multiplier with accumulator for fractional speeds
         if !sim.paused {
-            sim.step(&mut rng);
+            sim.speed_accumulator += sim.speed_multiplier;
+            let steps = sim.speed_accumulator.floor() as usize;
+            sim.speed_accumulator -= steps as f32;
+
+            for _ in 0..steps {
+                sim.step(&mut rng);
+            }
         }
 
         // Calculate statistics via simulation API
@@ -71,6 +82,7 @@ async fn main() {
             fruit_count,
             avg_energy,
             sim.paused,
+            sim.speed_multiplier,
         );
 
         next_frame().await;

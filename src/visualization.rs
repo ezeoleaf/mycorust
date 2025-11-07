@@ -2,14 +2,15 @@ use macroquad::prelude::*;
 
 use crate::config::*;
 use crate::hypha::Hypha;
-use crate::nutrients::nutrient_color;
+use crate::nutrients::{nutrient_color, NutrientGrid};
 use crate::types::{Connection, FruitBody, Segment};
 
-pub fn draw_nutrients(nutrients: &[[f32; GRID_SIZE]; GRID_SIZE]) {
+pub fn draw_nutrients(nutrients: &NutrientGrid) {
     for x in 0..GRID_SIZE {
         for y in 0..GRID_SIZE {
-            let v = nutrients[x][y];
-            let color = nutrient_color(v);
+            let sugar = nutrients.sugar[x][y];
+            let nitrogen = nutrients.nitrogen[x][y];
+            let color = nutrient_color(sugar, nitrogen);
             draw_rectangle(
                 x as f32 * CELL_SIZE,
                 y as f32 * CELL_SIZE,
@@ -22,6 +23,7 @@ pub fn draw_nutrients(nutrients: &[[f32; GRID_SIZE]; GRID_SIZE]) {
 }
 
 pub fn draw_obstacles(obstacles: &[[bool; GRID_SIZE]; GRID_SIZE]) {
+    #[allow(clippy::needless_range_loop)]
     for x in 0..GRID_SIZE {
         for y in 0..GRID_SIZE {
             if obstacles[x][y] {
@@ -37,7 +39,10 @@ pub fn draw_obstacles(obstacles: &[[bool; GRID_SIZE]; GRID_SIZE]) {
     }
 }
 
-pub fn draw_segments(segments: &Vec<Segment>, max_segment_age: f32) {
+pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible: bool) {
+    if !hyphae_visible {
+        return;
+    }
     let fps = get_fps();
     let step = if fps < 30 {
         3
@@ -64,11 +69,7 @@ pub fn draw_segments(segments: &Vec<Segment>, max_segment_age: f32) {
     }
 }
 
-pub fn draw_connections(
-    connections: &Vec<Connection>,
-    hyphae: &Vec<Hypha>,
-    connections_visible: bool,
-) {
+pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connections_visible: bool) {
     if !connections_visible {
         return;
     }
@@ -93,11 +94,7 @@ pub fn draw_connections(
     }
 }
 
-pub fn draw_minimap(
-    nutrients: &[[f32; GRID_SIZE]; GRID_SIZE],
-    hyphae: &Vec<Hypha>,
-    minimap_visible: bool,
-) {
+pub fn draw_minimap(nutrients: &NutrientGrid, hyphae: &[Hypha], minimap_visible: bool) {
     if !minimap_visible {
         return;
     }
@@ -122,8 +119,9 @@ pub fn draw_minimap(
     let step = 2usize;
     for x in (0..GRID_SIZE).step_by(step) {
         for y in (0..GRID_SIZE).step_by(step) {
-            let v = nutrients[x][y];
-            let c = nutrient_color(v);
+            let sugar = nutrients.sugar[x][y];
+            let nitrogen = nutrients.nitrogen[x][y];
+            let c = nutrient_color(sugar, nitrogen);
             let px = x0 + x as f32 * map_scale;
             let py = y0 + y as f32 * map_scale;
             draw_rectangle(px, py, map_scale * step as f32, map_scale * step as f32, c);
@@ -138,22 +136,67 @@ pub fn draw_minimap(
     }
 }
 
-pub fn draw_fruit_bodies(fruit_bodies: &Vec<FruitBody>) {
+pub fn draw_fruit_bodies(fruit_bodies: &[FruitBody], hyphae: &[crate::hypha::Hypha]) {
     for f in fruit_bodies {
         let stem_h = 10.0;
         let stem_w = 3.0;
         let px = f.x * CELL_SIZE;
         let py = f.y * CELL_SIZE;
-        // stem
+
+        // Draw energy transfer lines from nearby hyphae
+        // Transfer radius in grid units (matches simulation)
+        let transfer_radius_grid = 15.0;
+        let transfer_radius_sq = transfer_radius_grid * transfer_radius_grid;
+        for h in hyphae.iter().filter(|h| h.alive && h.energy > 0.1) {
+            let hx = h.x * CELL_SIZE;
+            let hy = h.y * CELL_SIZE;
+            // Check distance in grid units
+            let dx_grid = f.x - h.x;
+            let dy_grid = f.y - h.y;
+            let dist_sq_grid = dx_grid * dx_grid + dy_grid * dy_grid;
+
+            if dist_sq_grid < transfer_radius_sq && dist_sq_grid > 0.1 {
+                let dist_grid = dist_sq_grid.sqrt();
+                let intensity = (1.0 - dist_grid / transfer_radius_grid).max(0.0) * h.energy;
+                // Make lines more visible - higher alpha and thicker
+                let alpha = (intensity * 0.6 + 0.2).min(0.8);
+                let thickness = 2.0 + intensity * 1.5;
+                draw_line(hx, hy, px, py, thickness, Color::new(1.0, 0.8, 0.2, alpha));
+            }
+        }
+
+        // Energy-based size and color
+        let energy_factor = f.energy.clamp(0.0, 1.0);
+        let cap_size = 6.0 + energy_factor * 4.0;
+        let cap_red = 0.8 - energy_factor * 0.3;
+        let cap_green = 0.2 + energy_factor * 0.4;
+
+        // stem (brighter with more energy)
         draw_rectangle(
             px - stem_w / 2.0,
             py - stem_h,
             stem_w,
             stem_h,
-            Color::new(0.9, 0.9, 0.8, 0.9),
+            Color::new(0.9, 0.9, 0.8, 0.7 + energy_factor * 0.2),
         );
-        // cap
-        draw_circle(px, py - stem_h, 6.0, Color::new(0.8, 0.2, 0.2, 0.9));
+        // cap (grows and changes color with energy)
+        draw_circle(
+            px,
+            py - stem_h,
+            cap_size,
+            Color::new(cap_red, cap_green, 0.2, 0.9),
+        );
+
+        // Energy glow effect
+        if energy_factor > 0.3 {
+            let glow_alpha = (energy_factor - 0.3) * 0.4;
+            draw_circle(
+                px,
+                py - stem_h,
+                cap_size + 2.0,
+                Color::new(1.0, 1.0, 0.5, glow_alpha),
+            );
+        }
     }
 }
 
@@ -164,28 +207,40 @@ pub fn draw_stats_and_help(
     fruit_count: usize,
     avg_energy: f32,
     paused: bool,
+    speed_multiplier: f32,
 ) {
     let fps = get_fps();
-    let stats_text = format!(
-        "Hyphae: {} | Spores: {} | Connections: {} | Fruits: {} | Avg Energy: {:.2} | FPS: {:.0}",
-        hyphae_count, spores_count, connections_count, fruit_count, avg_energy, fps
+    let stats_part1_text = format!(
+        "Hyphae: {} | Spores: {} | Connections: {} | Fruits: {} | Avg Energy: {:.2}",
+        hyphae_count, spores_count, connections_count, fruit_count, avg_energy,
     );
-    draw_text(&stats_text, 10.0, 20.0, 20.0, WHITE);
+    draw_text(&stats_part1_text, 10.0, 20.0, 20.0, WHITE);
+    let stats_part2_text = format!("Speed: {:.1}x | FPS: {:.0}", speed_multiplier, fps);
+    draw_text(&stats_part2_text, 10.0, 40.0, 20.0, WHITE);
     if paused {
-        draw_text("PAUSED - Press SPACE to resume", 10.0, 45.0, 20.0, YELLOW);
+        draw_text("PAUSED - Press SPACE to resume", 10.0, 60.0, 20.0, YELLOW);
     }
     let controls_part1_text =
-        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Toggle Connections | M=Toggle Minimap";
+        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Toggle Connections | M=Toggle Minimap | H=Toggle Hyphae";
     draw_text(
         controls_part1_text,
+        10.0,
+        screen_height() - 60.0,
+        16.0,
+        Color::new(1.0, 1.0, 1.0, 0.7),
+    );
+    let controls_part2_text =
+        "S=Spawn | N=Sugar patch | T=Nitrogen patch | LMB=Sugar | RMB=Nitrogen";
+    draw_text(
+        controls_part2_text,
         10.0,
         screen_height() - 40.0,
         16.0,
         Color::new(1.0, 1.0, 1.0, 0.7),
     );
-    let controls_part2_text = "S=Spawn | N=Nutrients | LMB=Add nutrient";
+    let controls_part3_text = "Speed Controls: <- = Slower | -> = Faster | 0 = Reset to 1x";
     draw_text(
-        controls_part2_text,
+        controls_part3_text,
         10.0,
         screen_height() - 20.0,
         16.0,

@@ -26,6 +26,21 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         sim.toggle_minimap();
     }
 
+    if is_key_pressed(KeyCode::H) {
+        sim.toggle_hyphae_visibility();
+    }
+
+    // Speed controls
+    if is_key_pressed(KeyCode::Right) {
+        sim.increase_speed();
+    }
+    if is_key_pressed(KeyCode::Left) {
+        sim.decrease_speed();
+    }
+    if is_key_pressed(KeyCode::Key0) {
+        sim.reset_speed();
+    }
+
     if is_key_pressed(KeyCode::S) {
         // Spawn new hypha at mouse position
         let (mx, my) = mouse_position();
@@ -41,11 +56,27 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         sim.add_nutrient_patch(gx, gy);
     }
 
+    if is_key_pressed(KeyCode::T) {
+        // Add nitrogen patch at mouse position
+        let (mx, my) = mouse_position();
+        let gx = (mx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gy = (my / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        sim.add_nitrogen_patch(gx, gy);
+    }
+
     // Mouse interaction (works even when paused)
     if is_mouse_button_pressed(MouseButton::Left) {
         let (mx, my) = mouse_position();
         let gx = (mx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
         let gy = (my / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
         sim.add_nutrient_cell(gx, gy);
+    }
+
+    if is_mouse_button_pressed(MouseButton::Right) {
+        // Right click to add nitrogen cell
+        let (mx, my) = mouse_position();
+        let gx = (mx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gy = (my / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        sim.add_nitrogen_cell(gx, gy);
     }
 }

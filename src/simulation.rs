@@ -4,7 +4,7 @@ use macroquad::prelude::*;
 
 use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
-use crate::nutrients::nutrient_gradient;
+use crate::nutrients::{nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
 use crate::types::{Connection, FruitBody, Segment};
 
@@ -15,7 +15,7 @@ fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
 
 // Simulation state - contains all mutable state data
 pub struct SimulationState {
-    pub nutrients: [[f32; GRID_SIZE]; GRID_SIZE],
+    pub nutrients: NutrientGrid,
     pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
     pub hyphae: Vec<Hypha>,
     pub spores: Vec<Spore>,
@@ -29,7 +29,7 @@ pub struct SimulationState {
 impl SimulationState {
     pub fn new() -> Self {
         Self {
-            nutrients: [[0.0f32; GRID_SIZE]; GRID_SIZE],
+            nutrients: NutrientGrid::new(),
             obstacles: [[false; GRID_SIZE]; GRID_SIZE],
             hyphae: Vec::new(),
             spores: Vec::new(),
@@ -49,6 +49,9 @@ pub struct Simulation {
     pub paused: bool,
     pub connections_visible: bool,
     pub minimap_visible: bool,
+    pub hyphae_visible: bool,
+    pub speed_multiplier: f32,
+    pub speed_accumulator: f32,
 }
 
 // Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
@@ -75,15 +78,8 @@ impl Simulation {
         let grid_size = config.grid_size;
         let center = grid_size as f32 / 2.0;
 
-        // Initialize nutrients
-        for x in 0..grid_size {
-            for y in 0..grid_size {
-                let dist = ((x as f32 - center).powi(2) + (y as f32 - center).powi(2)).sqrt();
-                state.nutrients[x][y] = (1.0 - dist / (grid_size as f32 * 0.9)).max(0.0)
-                    * rng.gen_range(0.7..1.0)
-                    * (1.0 + rng.gen_range(-0.1..0.1));
-            }
-        }
+        // Initialize nutrients with realistic organic distribution
+        Self::initialize_realistic_nutrients(&mut state.nutrients, grid_size, rng);
 
         // Initialize obstacles
         for _ in 0..config.obstacle_count {
@@ -115,7 +111,110 @@ impl Simulation {
             config,
             paused: false,
             connections_visible: true,
-            minimap_visible: true,
+            minimap_visible: false,
+            hyphae_visible: true,
+            speed_multiplier: 1.0,
+            speed_accumulator: 0.0,
+        }
+    }
+
+    /// Initialize nutrients with a realistic organic distribution
+    /// Uses multiple organic patches (like decaying matter) with noise-based variation
+    fn initialize_realistic_nutrients<R: Rng>(
+        nutrients: &mut NutrientGrid,
+        grid_size: usize,
+        rng: &mut R,
+    ) {
+        // Simple noise-like function using multiple octaves
+        fn simple_noise(x: f32, y: f32, seed: u64) -> f32 {
+            let mut value = 0.0;
+            let mut amplitude = 1.0;
+            let mut frequency = 0.1;
+            let mut max_value = 0.0;
+
+            // 4 octaves for natural variation
+            for _ in 0..4 {
+                let nx = (x * frequency) as i32;
+                let ny = (y * frequency) as i32;
+                // Simple hash-based noise
+                let hash = ((nx.wrapping_mul(73856093) ^ ny.wrapping_mul(19349663)) as u64)
+                    .wrapping_mul(seed);
+                let noise = ((hash % 1000) as f32 / 1000.0) * 2.0 - 1.0;
+                value += noise * amplitude;
+                max_value += amplitude;
+                amplitude *= 0.5;
+                frequency *= 2.0;
+            }
+            (value / max_value + 1.0) * 0.5 // Normalize to 0..1
+        }
+
+        // Create organic patches for sugar (more widespread, like plant matter)
+        let sugar_patches = 8 + rng.gen_range(0..5);
+        let mut sugar_field = vec![vec![0.0f32; grid_size]; grid_size];
+
+        for _ in 0..sugar_patches {
+            let patch_x = rng.gen_range(0.0..grid_size as f32);
+            let patch_y = rng.gen_range(0.0..grid_size as f32);
+            let patch_radius = rng.gen_range(15.0..40.0);
+            let patch_intensity = rng.gen_range(0.4..0.9);
+            let seed = rng.gen::<u64>();
+
+            #[allow(clippy::needless_range_loop)]
+            for x in 0..grid_size {
+                for y in 0..grid_size {
+                    let dx = x as f32 - patch_x;
+                    let dy = y as f32 - patch_y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let dist = dist_sq.sqrt();
+                    let falloff = (1.0 - (dist / patch_radius).min(1.0)).max(0.0);
+                    // Smooth falloff with noise variation
+                    let noise = simple_noise(x as f32, y as f32, seed);
+                    let contribution = falloff * falloff * patch_intensity * (0.7 + 0.3 * noise);
+                    sugar_field[x][y] = (sugar_field[x][y] + contribution).min(1.0);
+                }
+            }
+        }
+
+        // Create concentrated patches for nitrogen (rarer, like animal waste or nitrogen-fixing zones)
+        let nitrogen_patches = 3 + rng.gen_range(0..4);
+        let mut nitrogen_field = vec![vec![0.0f32; grid_size]; grid_size];
+
+        for _ in 0..nitrogen_patches {
+            let patch_x = rng.gen_range(0.0..grid_size as f32);
+            let patch_y = rng.gen_range(0.0..grid_size as f32);
+            let patch_radius = rng.gen_range(8.0..25.0);
+            let patch_intensity = rng.gen_range(0.5..1.0);
+            let seed = rng.gen::<u64>();
+
+            #[allow(clippy::needless_range_loop)]
+            for x in 0..grid_size {
+                for y in 0..grid_size {
+                    let dx = x as f32 - patch_x;
+                    let dy = y as f32 - patch_y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let dist = dist_sq.sqrt();
+                    let falloff = (1.0 - (dist / patch_radius).min(1.0)).max(0.0);
+                    // Sharper falloff for nitrogen (more concentrated)
+                    let noise = simple_noise(x as f32, y as f32, seed);
+                    let contribution =
+                        falloff * falloff * falloff * patch_intensity * (0.6 + 0.4 * noise);
+                    nitrogen_field[x][y] = (nitrogen_field[x][y] + contribution).min(1.0);
+                }
+            }
+        }
+
+        // Add background noise for natural variation
+        let background_seed = rng.gen::<u64>();
+        for x in 0..grid_size {
+            for y in 0..grid_size {
+                let noise = simple_noise(x as f32, y as f32, background_seed);
+                // Add subtle background variation
+                let bg_sugar = (noise - 0.5) * 0.15; // ±15% variation
+                let bg_nitrogen = (noise - 0.5) * 0.1; // ±10% variation
+
+                nutrients.sugar[x][y] = (sugar_field[x][y] + bg_sugar).clamp(0.0, 1.0);
+                nutrients.nitrogen[x][y] = (nitrogen_field[x][y] + bg_nitrogen).clamp(0.0, 1.0);
+            }
         }
     }
 
@@ -128,6 +227,18 @@ impl Simulation {
     pub fn toggle_minimap(&mut self) {
         self.minimap_visible = !self.minimap_visible;
     }
+    pub fn toggle_hyphae_visibility(&mut self) {
+        self.hyphae_visible = !self.hyphae_visible;
+    }
+    pub fn increase_speed(&mut self) {
+        self.speed_multiplier = (self.speed_multiplier * 1.5).min(10.0);
+    }
+    pub fn decrease_speed(&mut self) {
+        self.speed_multiplier = (self.speed_multiplier / 1.5).max(0.1);
+    }
+    pub fn reset_speed(&mut self) {
+        self.speed_multiplier = 1.0;
+    }
     pub fn reset<R: Rng>(&mut self, rng: &mut R) {
         self.state.hyphae.clear();
         self.state.spores.clear();
@@ -135,6 +246,10 @@ impl Simulation {
         self.state.connections.clear();
         self.state.fruit_bodies.clear();
         self.state.fruit_cooldown_timer = 0.0;
+
+        // Regenerate nutrients with new realistic distribution
+        Self::initialize_realistic_nutrients(&mut self.state.nutrients, self.config.grid_size, rng);
+
         let cx = self.config.grid_size as f32 / 2.0;
         let cy = self.config.grid_size as f32 / 2.0;
         self.state.hyphae.push(Hypha {
@@ -173,13 +288,29 @@ impl Simulation {
                 let ny = (gy as i32 + dy).max(0).min(grid_size as i32 - 1) as usize;
                 let dist = ((dx * dx + dy * dy) as f32).sqrt();
                 if dist < 3.0 {
-                    self.state.nutrients[nx][ny] = 1.0;
+                    self.state.nutrients.add_sugar(nx, ny, 1.0);
+                }
+            }
+        }
+    }
+    pub fn add_nitrogen_patch(&mut self, gx: usize, gy: usize) {
+        let grid_size = self.config.grid_size;
+        for dx in -3..=3 {
+            for dy in -3..=3 {
+                let nx = (gx as i32 + dx).max(0).min(grid_size as i32 - 1) as usize;
+                let ny = (gy as i32 + dy).max(0).min(grid_size as i32 - 1) as usize;
+                let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                if dist < 3.0 {
+                    self.state.nutrients.add_nitrogen(nx, ny, 1.0);
                 }
             }
         }
     }
     pub fn add_nutrient_cell(&mut self, gx: usize, gy: usize) {
-        self.state.nutrients[gx][gy] = 1.0;
+        self.state.nutrients.add_sugar(gx, gy, 1.0);
+    }
+    pub fn add_nitrogen_cell(&mut self, gx: usize, gy: usize) {
+        self.state.nutrients.add_nitrogen(gx, gy, 1.0);
     }
 
     pub fn stats(&self) -> (usize, usize, usize, usize, f32, f32) {
@@ -387,7 +518,7 @@ impl Simulation {
                 } else {
                     h.angle += std::f32::consts::PI + rng.gen_range(-0.5..0.5);
                 }
-                h.angle = h.angle % std::f32::consts::TAU;
+                h.angle %= std::f32::consts::TAU;
                 if h.angle < 0.0 {
                     h.angle += std::f32::consts::TAU;
                 }
@@ -427,11 +558,23 @@ impl Simulation {
 
             let xi = h.x as usize;
             let yi = h.y as usize;
-            let n = self.state.nutrients[xi][yi];
-            if n > 0.001 {
-                let absorbed = n.min(self.config.nutrient_decay);
+            // Consume both sugar (primary) and nitrogen (secondary)
+            let sugar = self.state.nutrients.sugar[xi][yi];
+            let nitrogen = self.state.nutrients.nitrogen[xi][yi];
+            let total_nutrient = sugar + nitrogen * 0.5; // Nitrogen is less energy-dense
+            if total_nutrient > 0.001 {
+                let absorbed = total_nutrient.min(self.config.nutrient_decay);
                 h.energy = (h.energy + absorbed).min(1.0);
-                self.state.nutrients[xi][yi] -= absorbed;
+                // Consume proportionally from both types
+                if sugar > 0.0 {
+                    let sugar_absorb = (absorbed * sugar / total_nutrient).min(sugar);
+                    self.state.nutrients.sugar[xi][yi] -= sugar_absorb;
+                }
+                if nitrogen > 0.0 {
+                    let nitrogen_absorb =
+                        (absorbed * nitrogen * 0.5 / total_nutrient).min(nitrogen);
+                    self.state.nutrients.nitrogen[xi][yi] -= nitrogen_absorb;
+                }
             }
 
             h.energy *= self.config.energy_decay_rate;
@@ -461,7 +604,7 @@ impl Simulation {
                 }
             }
 
-            if n < 0.05 && rng.gen_bool(0.001) {
+            if total_nutrient < 0.05 && rng.gen_bool(0.001) {
                 self.state.spores.push(Spore {
                     x: h.x,
                     y: h.y,
@@ -614,15 +757,27 @@ impl Simulation {
             let y1 = (grid_size - 2).min(maxy.saturating_add(pad));
 
             let mut diffused = self.state.nutrients.clone();
+            // Diffuse both sugar and nitrogen
             for x in x0..=x1 {
                 for y in y0..=y1 {
-                    let avg = (self.state.nutrients[x + 1][y]
-                        + self.state.nutrients[x - 1][y]
-                        + self.state.nutrients[x][y + 1]
-                        + self.state.nutrients[x][y - 1])
+                    // Sugar diffusion
+                    let avg_sugar = (self.state.nutrients.sugar[x + 1][y]
+                        + self.state.nutrients.sugar[x - 1][y]
+                        + self.state.nutrients.sugar[x][y + 1]
+                        + self.state.nutrients.sugar[x][y - 1])
                         * 0.25;
-                    diffused[x][y] +=
-                        self.config.diffusion_rate * (avg - self.state.nutrients[x][y]);
+                    diffused.sugar[x][y] +=
+                        self.config.diffusion_rate * (avg_sugar - self.state.nutrients.sugar[x][y]);
+
+                    // Nitrogen diffusion (slower)
+                    let avg_nitrogen = (self.state.nutrients.nitrogen[x + 1][y]
+                        + self.state.nutrients.nitrogen[x - 1][y]
+                        + self.state.nutrients.nitrogen[x][y + 1]
+                        + self.state.nutrients.nitrogen[x][y - 1])
+                        * 0.25;
+                    diffused.nitrogen[x][y] += self.config.diffusion_rate
+                        * 0.7
+                        * (avg_nitrogen - self.state.nutrients.nitrogen[x][y]);
                 }
             }
             self.state.nutrients = diffused;
@@ -649,7 +804,8 @@ impl Simulation {
             }
             let xi = spore.x as usize;
             let yi = spore.y as usize;
-            if self.state.nutrients[xi][yi] > self.config.spore_germination_threshold {
+            let total_nutrient = self.state.nutrients.total_at(xi, yi);
+            if total_nutrient > self.config.spore_germination_threshold {
                 new_hyphae_from_spores.push(Hypha {
                     x: spore.x,
                     y: spore.y,
@@ -705,11 +861,37 @@ impl Simulation {
                 x: cx,
                 y: cy,
                 age: 0.0,
+                energy: 0.0,
             });
             self.state.fruit_cooldown_timer = self.config.fruiting_cooldown;
         }
+
+        // Energy transfer from hyphae to fruiting bodies
         for f in &mut self.state.fruit_bodies {
             f.age += 0.01;
+            let mut total_transfer = 0.0f32;
+            let transfer_radius = 15.0f32;
+            let transfer_radius_sq = transfer_radius * transfer_radius;
+
+            for h in &mut self.state.hyphae {
+                if !h.alive || h.energy < 0.1 {
+                    continue;
+                }
+                let dx = f.x - h.x;
+                let dy = f.y - h.y;
+                let dist_sq = dx * dx + dy * dy;
+
+                if dist_sq < transfer_radius_sq && dist_sq > 0.1 {
+                    let dist = dist_sq.sqrt();
+                    let transfer_rate = 0.01 * (1.0 - dist / transfer_radius).max(0.0);
+                    let transfer = (h.energy * transfer_rate).min(0.05);
+                    if transfer > 0.001 {
+                        h.energy -= transfer;
+                        total_transfer += transfer;
+                    }
+                }
+            }
+            f.energy = (f.energy + total_transfer).min(1.0);
         }
     }
 }

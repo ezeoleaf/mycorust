@@ -15,4 +15,5 @@ pub struct FruitBody {
     pub x: f32,
     pub y: f32,
     pub age: f32,
+    pub energy: f32,
 }

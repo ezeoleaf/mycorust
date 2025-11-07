@@ -176,9 +176,17 @@ for _ in 0..INITIAL_HYPHAE_COUNT {
 - `R` - Reset simulation
 - `C` - Clear all segments
 - `S` - Spawn new hypha at mouse
-- `N` - Add nutrient patch at mouse
+- `N` - Add sugar patch at mouse
+- `T` - Add nitrogen patch at mouse
 - `SPACE` - Pause/Play
-- `LMB` - Add single nutrient
+- `X` - Toggle connections visibility
+- `M` - Toggle minimap visibility
+- `H` - Toggle hyphae visibility
+- `LMB` - Add single sugar cell
+- `RMB` - Add single nitrogen cell
+- `←` - Decrease simulation speed
+- `→` - Increase simulation speed
+- `0` - Reset speed to 1x
 
 ### ✅ 10. **Better Anastomosis** - COMPLETED
 
@@ -204,15 +212,9 @@ if dist2 < 4.0 {
 }
 ```
 
-### 11. **Fruiting Body Formation**
+### ✅ 11. **Fruiting Body Formation** - COMPLETED
 
-When network reaches certain size/energy, spawn a fruiting body (mushroom):
-
-```rust
-if total_energy > FRUITING_THRESHOLD && !has_fruiting_body {
-    spawn_fruiting_body(center_x, center_y);
-}
-```
+When network reaches certain size/energy, spawn a fruiting body (mushroom). Fruiting bodies now accumulate energy from nearby hyphae, with visual energy transfer lines showing the flow. Fruiting bodies grow in size and change color based on accumulated energy, with a glow effect when energy is high.
 
 ### 12. **Competing Networks**
 
@@ -234,13 +236,26 @@ segments.retain(|s| s.age < MAX_SEGMENT_AGE);
 // Fade older segments
 ```
 
-### 14. **Nutrient Source Types**
+### ✅ 14. **Nutrient Source Types** - COMPLETED
 
-Different nutrient types (sugar, nitrogen, etc.) that hyphae prefer differently.
+Different nutrient types (sugar, nitrogen, etc.) that hyphae prefer differently. Implemented with `NutrientGrid` supporting sugar (primary energy) and nitrogen (growth nutrient). Hyphae consume both types proportionally, and visualization blends colors to show both types.
+
+### ✅ 14b. **Realistic Nutrient Distribution** - COMPLETED
+
+Replaced simple radial gradient with organic patch-based distribution using multi-octave noise. Sugar patches are widespread (8-12 patches, 15-40 unit radius) like plant matter, while nitrogen patches are concentrated (3-6 patches, 8-25 unit radius) like animal waste or nitrogen-fixing zones. Background noise adds natural variation. Each reset generates a new distribution.
 
 ### ✅ 15. **Hyphal Density Effects** - COMPLETED
 
 Slower growth in areas with many hyphae (competition).
+
+### ✅ 16. **Speed Controls** - COMPLETED
+
+Adjustable simulation speed with keyboard controls:
+- Left Arrow (←): Decrease speed (multiply by 1.5, minimum 0.1x)
+- Right Arrow (→): Increase speed (multiply by 1.5, maximum 10x)
+- 0: Reset speed to 1x
+
+Speed is displayed in the stats overlay and uses an accumulator for smooth fractional speeds. The simulation runs multiple steps per frame when speed > 1x, and uses frame accumulation for speeds < 1x.
 
 ## 🔧 Code Structure Improvements
 
