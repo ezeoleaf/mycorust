@@ -1,3 +1,5 @@
+#![cfg(feature = "gui")]
+
 use ::rand as external_rand;
 use external_rand::Rng;
 use macroquad::prelude::*;

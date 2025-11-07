@@ -1,11 +1,14 @@
 use ::rand as external_rand;
 use external_rand::Rng;
+#[cfg(feature = "gui")]
 use macroquad::prelude::*;
 
 use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
 use crate::nutrients::{nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
+#[cfg(not(feature = "gui"))]
+use crate::types::Vec2;
 use crate::types::{Connection, FruitBody, Segment};
 
 #[inline]
@@ -632,11 +635,32 @@ impl Simulation {
                 h.energy *= 0.5;
             }
 
-            let from = vec2(
-                h.prev_x * self.config.cell_size,
-                h.prev_y * self.config.cell_size,
-            );
-            let to = vec2(h.x * self.config.cell_size, h.y * self.config.cell_size);
+            let from = {
+                #[cfg(feature = "gui")]
+                {
+                    vec2(
+                        h.prev_x * self.config.cell_size,
+                        h.prev_y * self.config.cell_size,
+                    )
+                }
+                #[cfg(not(feature = "gui"))]
+                {
+                    Vec2::new(
+                        h.prev_x * self.config.cell_size,
+                        h.prev_y * self.config.cell_size,
+                    )
+                }
+            };
+            let to = {
+                #[cfg(feature = "gui")]
+                {
+                    vec2(h.x * self.config.cell_size, h.y * self.config.cell_size)
+                }
+                #[cfg(not(feature = "gui"))]
+                {
+                    Vec2::new(h.x * self.config.cell_size, h.y * self.config.cell_size)
+                }
+            };
             self.state.segments.push(Segment { from, to, age: 0.0 });
         }
 
@@ -720,7 +744,17 @@ impl Simulation {
         }
 
         // diffuse nutrients (LOD: bounding box + frame skipping)
-        let do_diffuse = if get_fps() < 45 {
+        let fps_check: f32 = {
+            #[cfg(feature = "gui")]
+            {
+                get_fps() as f32
+            }
+            #[cfg(not(feature = "gui"))]
+            {
+                60.0
+            }
+        };
+        let do_diffuse = if fps_check < 45.0 {
             (self.state.frame_index % 2) == 0
         } else {
             true
@@ -818,13 +852,16 @@ impl Simulation {
                     age: 0.0,
                 });
                 spore.alive = false;
-                // Particle burst at germination
-                for k in 0..8 {
-                    let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
-                    let r = rng.gen_range(2.0..5.0);
-                    let px = spore.x * self.config.cell_size + a.cos() * r;
-                    let py = spore.y * self.config.cell_size + a.sin() * r;
-                    draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
+                // Particle burst at germination (only in GUI mode)
+                #[cfg(feature = "gui")]
+                {
+                    for k in 0..8 {
+                        let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
+                        let r = rng.gen_range(2.0..5.0);
+                        let px = spore.x * self.config.cell_size + a.cos() * r;
+                        let py = spore.y * self.config.cell_size + a.sin() * r;
+                        draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
+                    }
                 }
             }
         }
@@ -836,9 +873,18 @@ impl Simulation {
         // fruiting
         let (hyphae_count, _spores_count, _conn_count, _fruit_count, _avg_energy, total_energy) =
             self.stats();
-        let fps = get_fps();
+        let fps: f32 = {
+            #[cfg(feature = "gui")]
+            {
+                get_fps() as f32
+            }
+            #[cfg(not(feature = "gui"))]
+            {
+                60.0 // Default FPS for TUI mode
+            }
+        };
         self.state.fruit_cooldown_timer =
-            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
+            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1.0)).max(0.0);
         if self.state.fruit_cooldown_timer <= 0.0
             && hyphae_count >= self.config.fruiting_min_hyphae
             && total_energy >= self.config.fruiting_threshold_total_energy

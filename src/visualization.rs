@@ -1,3 +1,5 @@
+#![cfg(feature = "gui")]
+
 use macroquad::prelude::*;
 
 use crate::config::*;

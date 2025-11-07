@@ -4,6 +4,20 @@ version = "0.1.0"
 authors = ["ezeoleaf"]
 edition = "2021"
 
+[[bin]]
+name = "mycorust"
+path = "src/main.rs"
+
+[[bin]]
+name = "mycorust-tui"
+path = "src/tui.rs"
+
 [dependencies]
-macroquad = "0.4.14"
+macroquad = { version = "0.4.14", optional = true }
 rand = "0.8"
+ratatui = "0.27"
+crossterm = "0.27"
+
+[features]
+default = ["gui"]
+gui = ["macroquad"]

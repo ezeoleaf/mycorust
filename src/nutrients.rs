@@ -1,4 +1,5 @@
 use crate::config::GRID_SIZE;
+#[cfg(feature = "gui")]
 use macroquad::prelude::*;
 
 // Multi-nutrient grid
@@ -29,7 +30,8 @@ impl NutrientGrid {
     }
 }
 
-pub fn nutrient_color(sugar: f32, nitrogen: f32) -> Color {
+#[cfg(feature = "gui")]
+pub fn nutrient_color(sugar: f32, nitrogen: f32) -> macroquad::prelude::Color {
     let s = sugar.clamp(0.0, 1.0);
     let n = nitrogen.clamp(0.0, 1.0);
     // Sugar = brown/green, Nitrogen = blue/purple
@@ -37,7 +39,7 @@ pub fn nutrient_color(sugar: f32, nitrogen: f32) -> Color {
     let r = 0.2 + 0.3 * s + 0.2 * n;
     let g = 0.3 + 0.5 * s + 0.1 * n;
     let b = 0.2 + 0.3 * n;
-    Color::new(r, g, b, 1.0)
+    macroquad::prelude::Color::new(r, g, b, 1.0)
 }
 
 pub fn nutrient_gradient(grid: &NutrientGrid, x: f32, y: f32) -> (f32, f32) {

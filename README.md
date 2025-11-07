@@ -8,11 +8,27 @@ A mycelium/hyphae growth simulation in Rust using Macroquad. Hyphae follow nutri
 
 ### Run
 
+**Graphical Mode (default):**
 ```bash
 cargo run
 # or for better performance
 cargo run --release
+# or using make
+make run
+make run-release
 ```
+
+**Console/TUI Mode:**
+```bash
+cargo run --bin mycorust-tui
+# or for better performance
+cargo run --release --bin mycorust-tui
+# or using make
+make run-tui
+make run-tui-release
+```
+
+The TUI mode uses ratatui for a text-based interface in the terminal. Press `Q` or `Esc` to quit.
 
 ### Features
 
@@ -30,6 +46,7 @@ cargo run --release
 - Adjustable simulation speed (0.1x to 10x) with visual feedback.
 - Performance optimizations: spatial hashing, FPS-based draw decimation, LOD diffusion.
 - Scientific tweaks: Sobel chemotaxis and global tropism bias.
+- **Console/TUI mode**: Text-based interface using ratatui for terminal-only environments.
 
 ### Controls
 
@@ -49,6 +66,18 @@ cargo run --release
 - 0: Reset speed to 1x
 
 Controls help is shown at the bottom of the screen.
+
+**TUI Mode Controls:**
+- Q or Esc: Quit
+- SPACE: Pause/Resume
+- R: Reset simulation
+- C: Clear trails
+- X: Toggle connections visibility
+- M: Toggle minimap visibility
+- H: Toggle hyphae visibility
+- Left Arrow (←): Decrease simulation speed
+- Right Arrow (→): Increase simulation speed
+- 0: Reset speed to 1x
 
 ### Configuration
 
