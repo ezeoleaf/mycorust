@@ -1,6 +1,7 @@
 use ::rand as external_rand;
 use external_rand::Rng;
 use macroquad::prelude::*;
+use std::collections::HashSet;
 
 use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
@@ -16,28 +17,46 @@ fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
 // Simulation state - contains all mutable state data
 pub struct SimulationState {
     pub nutrients: NutrientGrid,
+    pub nutrients_back: NutrientGrid, // Double buffer for diffusion
     pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
     pub hyphae: Vec<Hypha>,
     pub spores: Vec<Spore>,
     pub segments: Vec<Segment>,
     pub connections: Vec<Connection>,
+    pub connection_set: HashSet<(usize, usize)>, // Fast lookup for connections
     pub fruit_bodies: Vec<FruitBody>,
     pub fruit_cooldown_timer: f32,
     pub frame_index: u64,
+    // Reusable spatial hash grid to avoid allocations
+    pub spatial_grid: Vec<Vec<Vec<usize>>>,
+    pub spatial_grid_nx: usize,
+    pub spatial_grid_ny: usize,
 }
 
 impl SimulationState {
     pub fn new() -> Self {
+        // Pre-allocate spatial grid
+        let cell_size: f32 = 4.0;
+        let grid_size = GRID_SIZE;
+        let nx = ((grid_size as f32) / cell_size).ceil() as usize;
+        let ny = ((grid_size as f32) / cell_size).ceil() as usize;
+        let spatial_grid = vec![vec![Vec::new(); ny]; nx];
+
         Self {
             nutrients: NutrientGrid::new(),
+            nutrients_back: NutrientGrid::new(),
             obstacles: [[false; GRID_SIZE]; GRID_SIZE],
             hyphae: Vec::new(),
             spores: Vec::new(),
             segments: Vec::new(),
             connections: Vec::new(),
+            connection_set: HashSet::new(),
             fruit_bodies: Vec::new(),
             fruit_cooldown_timer: 0.0,
             frame_index: 0,
+            spatial_grid,
+            spatial_grid_nx: nx,
+            spatial_grid_ny: ny,
         }
     }
 }
@@ -244,11 +263,18 @@ impl Simulation {
         self.state.spores.clear();
         self.state.segments.clear();
         self.state.connections.clear();
+        self.state.connection_set.clear();
         self.state.fruit_bodies.clear();
         self.state.fruit_cooldown_timer = 0.0;
 
         // Regenerate nutrients with new realistic distribution
         Self::initialize_realistic_nutrients(&mut self.state.nutrients, self.config.grid_size, rng);
+        // Also reset back buffer
+        Self::initialize_realistic_nutrients(
+            &mut self.state.nutrients_back,
+            self.config.grid_size,
+            rng,
+        );
 
         let cx = self.config.grid_size as f32 / 2.0;
         let cy = self.config.grid_size as f32 / 2.0;
@@ -314,9 +340,15 @@ impl Simulation {
     }
 
     pub fn stats(&self) -> (usize, usize, usize, usize, f32, f32) {
-        let alive_hyphae: Vec<_> = self.state.hyphae.iter().filter(|h| h.alive).collect();
-        let hyphae_count = alive_hyphae.len();
-        let total_energy: f32 = alive_hyphae.iter().map(|h| h.energy).sum();
+        // Avoid Vec allocation - iterate directly
+        let mut hyphae_count = 0;
+        let mut total_energy = 0.0f32;
+        for h in &self.state.hyphae {
+            if h.alive {
+                hyphae_count += 1;
+                total_energy += h.energy;
+            }
+        }
         let avg_energy = if hyphae_count > 0 {
             total_energy / hyphae_count as f32
         } else {
@@ -349,25 +381,28 @@ impl Simulation {
         let mut energy_transfers: Vec<(usize, usize, f32)> = Vec::new();
         let hyphae_len = self.state.hyphae.len();
 
-        let hyphae_info: Vec<(f32, f32, bool, f32)> = self
-            .state
-            .hyphae
-            .iter()
-            .map(|h| (h.x, h.y, h.alive, h.energy))
-            .collect();
-
-        // Spatial hash grid for neighbor queries
+        // Reuse spatial hash grid - clear and rebuild
         let cell_size: f32 = 4.0;
-        let grid_size = self.config.grid_size;
-        let nx = ((grid_size as f32) / cell_size).ceil() as usize;
-        let ny = ((grid_size as f32) / cell_size).ceil() as usize;
-        let mut buckets: Vec<Vec<Vec<usize>>> = vec![vec![Vec::new(); ny]; nx];
-        for (i, (x, y, alive, _)) in hyphae_info.iter().enumerate() {
-            if !*alive {
+        let nx = self.state.spatial_grid_nx;
+        let ny = self.state.spatial_grid_ny;
+        let buckets = &mut self.state.spatial_grid;
+
+        // Clear all buckets
+        for row in buckets.iter_mut() {
+            for bucket in row.iter_mut() {
+                bucket.clear();
+            }
+        }
+
+        // Build spatial hash grid and snapshot positions
+        let mut hyphae_positions: Vec<(f32, f32, bool, f32, Option<usize>)> =
+            Vec::with_capacity(hyphae_len);
+        for (i, h) in self.state.hyphae.iter().enumerate() {
+            if !h.alive {
                 continue;
             }
-            let bx = (*x / cell_size).floor() as isize;
-            let by = (*y / cell_size).floor() as isize;
+            let bx = (h.x / cell_size).floor() as isize;
+            let by = (h.y / cell_size).floor() as isize;
             if bx >= 0 && by >= 0 {
                 let bxu = bx as usize;
                 let byu = by as usize;
@@ -375,6 +410,12 @@ impl Simulation {
                     buckets[bxu][byu].push(i);
                 }
             }
+            // Store snapshot for this hypha
+            hyphae_positions.push((h.x, h.y, h.alive, h.energy, h.parent));
+        }
+        // Pad to match indices
+        while hyphae_positions.len() < hyphae_len {
+            hyphae_positions.push((0.0, 0.0, false, 0.0, None));
         }
 
         for (idx, h) in self.state.hyphae[..hyphae_len].iter_mut().enumerate() {
@@ -416,74 +457,69 @@ impl Simulation {
                 .gen_range(-self.config.angle_wander_range..self.config.angle_wander_range)
                 * wander_boost;
 
+            // Combined neighbor density and collision check in single iteration
             let mut neighbor_count = 0.0f32;
+            let mut too_close = false;
             let bx = (h.x / cell_size).floor() as isize;
             let by = (h.y / cell_size).floor() as isize;
+            let density_check_dist_sq = self.config.hyphae_avoidance_distance_sq() * 4.0;
+            let collision_check_dist_sq = self.config.hyphae_avoidance_distance_sq();
+
+            let new_x = h.x + h.angle.cos() * self.config.step_size;
+            let new_y = h.y + h.angle.sin() * self.config.step_size;
+
             for gx in (bx - 1)..=(bx + 1) {
+                if too_close {
+                    break;
+                }
+                if gx < 0 {
+                    continue;
+                }
+                let gux = gx as usize;
+                if gux >= nx {
+                    continue;
+                }
                 for gy in (by - 1)..=(by + 1) {
-                    if gx < 0 || gy < 0 {
+                    if too_close {
+                        break;
+                    }
+                    if gy < 0 {
                         continue;
                     }
-                    let gux = gx as usize;
                     let guy = gy as usize;
-                    if gux >= nx || guy >= ny {
+                    if guy >= ny {
                         continue;
                     }
                     for &other_idx in &buckets[gux][guy] {
-                        if other_idx == idx {
+                        if other_idx == idx || other_idx >= hyphae_positions.len() {
                             continue;
                         }
-                        let (ox, oy, other_alive, _) = hyphae_info[other_idx];
+                        let (other_x, other_y, other_alive, _, _) = hyphae_positions[other_idx];
                         if !other_alive {
                             continue;
                         }
-                        let dx = h.x - ox;
-                        let dy = h.y - oy;
-                        if dx * dx + dy * dy < self.config.hyphae_avoidance_distance_sq() * 4.0 {
+                        // Density check
+                        let dx = h.x - other_x;
+                        let dy = h.y - other_y;
+                        let dist2 = dx * dx + dy * dy;
+                        if dist2 < density_check_dist_sq {
                             neighbor_count += 1.0;
+                        }
+                        // Collision check
+                        if !too_close {
+                            let dx_new = new_x - other_x;
+                            let dy_new = new_y - other_y;
+                            let dist2_new = dx_new * dx_new + dy_new * dy_new;
+                            if dist2_new < collision_check_dist_sq && dist2_new > 0.001 {
+                                too_close = true;
+                                break;
+                            }
                         }
                     }
                 }
             }
             let density_slow = 1.0 / (1.0 + 0.05 * neighbor_count);
 
-            let new_x = h.x + h.angle.cos() * self.config.step_size * density_slow;
-            let new_y = h.y + h.angle.sin() * self.config.step_size * density_slow;
-            let mut too_close = false;
-            for gx in (bx - 1)..=(bx + 1) {
-                for gy in (by - 1)..=(by + 1) {
-                    if gx < 0 || gy < 0 {
-                        continue;
-                    }
-                    let gux = gx as usize;
-                    let guy = gy as usize;
-                    if gux >= nx || guy >= ny {
-                        continue;
-                    }
-                    for &other_idx in &buckets[gux][guy] {
-                        if other_idx == idx {
-                            continue;
-                        }
-                        let (ox, oy, other_alive, _) = hyphae_info[other_idx];
-                        if !other_alive {
-                            continue;
-                        }
-                        let dx = new_x - ox;
-                        let dy = new_y - oy;
-                        let dist2 = dx * dx + dy * dy;
-                        if dist2 < self.config.hyphae_avoidance_distance_sq() && dist2 > 0.001 {
-                            too_close = true;
-                            break;
-                        }
-                    }
-                    if too_close {
-                        break;
-                    }
-                }
-                if too_close {
-                    break;
-                }
-            }
             if too_close {
                 h.angle += rng.gen_range(-0.5..0.5);
             }
@@ -585,11 +621,12 @@ impl Simulation {
             }
 
             if let Some(parent_idx) = h.parent {
-                if parent_idx < hyphae_len {
-                    let (px, py, parent_alive, parent_energy) = hyphae_info[parent_idx];
+                if parent_idx < hyphae_positions.len() {
+                    let (parent_x, parent_y, parent_alive, parent_energy, _) =
+                        hyphae_positions[parent_idx];
                     if parent_alive {
-                        let dx = h.x - px;
-                        let dy = h.y - py;
+                        let dx = h.x - parent_x;
+                        let dy = h.y - parent_y;
                         let dist = (dx * dx + dy * dy).sqrt();
                         let max_dist = 6.0f32;
                         if dist < max_dist {
@@ -651,51 +688,100 @@ impl Simulation {
 
         self.state.hyphae.extend(new_hyphae);
 
-        // connections
+        // connections - use spatial hash grid to avoid O(n²) check
+        let anastomosis_dist_sq = self.config.anastomosis_distance_sq();
+        let mut new_connections: Vec<(usize, usize, f32)> = Vec::new();
+
+        // Use spatial grid for connection checking - check only nearby hyphae
         for i in 0..self.state.hyphae.len() {
-            for j in (i + 1)..self.state.hyphae.len() {
-                if !self.state.hyphae[i].alive || !self.state.hyphae[j].alive {
-                    continue;
-                }
-                let dx = self.state.hyphae[i].x - self.state.hyphae[j].x;
-                let dy = self.state.hyphae[i].y - self.state.hyphae[j].y;
-                let dist2 = dx * dx + dy * dy;
-                if dist2 < self.config.anastomosis_distance_sq() {
-                    let exists = self.state.connections.iter().any(|c| {
-                        (c.hypha1 == i && c.hypha2 == j) || (c.hypha1 == j && c.hypha2 == i)
-                    });
-                    if !exists {
-                        self.state.connections.push(Connection {
-                            hypha1: i,
-                            hypha2: j,
-                        });
-                        let energy_diff = self.state.hyphae[i].energy - self.state.hyphae[j].energy;
-                        if energy_diff.abs() > 0.1 {
-                            let transfer = energy_diff * 0.1;
-                            self.state.hyphae[i].energy -= transfer;
-                            self.state.hyphae[j].energy += transfer;
-                            self.state.hyphae[i].energy =
-                                self.state.hyphae[i].energy.clamp(0.0, 1.0);
-                            self.state.hyphae[j].energy =
-                                self.state.hyphae[j].energy.clamp(0.0, 1.0);
+            let h1_x = self.state.hyphae[i].x;
+            let h1_y = self.state.hyphae[i].y;
+            let h1_energy = self.state.hyphae[i].energy;
+            if !self.state.hyphae[i].alive {
+                continue;
+            }
+
+            // Check neighbors in spatial grid
+            let bx = (h1_x / cell_size).floor() as isize;
+            let by = (h1_y / cell_size).floor() as isize;
+
+            // Check current and adjacent cells
+            for gx in bx.max(0)..=(bx + 1).min(nx as isize - 1) {
+                for gy in by.max(0)..=(by + 1).min(ny as isize - 1) {
+                    let gux = gx as usize;
+                    let guy = gy as usize;
+                    for &j in &buckets[gux][guy] {
+                        if j <= i {
+                            continue; // Only check pairs once (j > i)
+                        }
+                        let h2_x = self.state.hyphae[j].x;
+                        let h2_y = self.state.hyphae[j].y;
+                        let h2_energy = self.state.hyphae[j].energy;
+                        if !self.state.hyphae[j].alive {
+                            continue;
+                        }
+
+                        let dx = h1_x - h2_x;
+                        let dy = h1_y - h2_y;
+                        let dist2 = dx * dx + dy * dy;
+                        if dist2 < anastomosis_dist_sq {
+                            // Use HashSet for O(1) lookup instead of O(n) linear search
+                            let key = (i, j);
+                            if !self.state.connection_set.contains(&key) {
+                                self.state.connection_set.insert(key);
+                                self.state.connections.push(Connection {
+                                    hypha1: i,
+                                    hypha2: j,
+                                });
+                                let energy_diff = h1_energy - h2_energy;
+                                if energy_diff.abs() > 0.1 {
+                                    let transfer = energy_diff * 0.1;
+                                    new_connections.push((i, j, transfer));
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        self.state.connections.retain(|c| {
-            self.state
+
+        // Apply energy transfers from new connections
+        for (i, j, transfer) in new_connections {
+            self.state.hyphae[i].energy = (self.state.hyphae[i].energy - transfer).clamp(0.0, 1.0);
+            self.state.hyphae[j].energy = (self.state.hyphae[j].energy + transfer).clamp(0.0, 1.0);
+        }
+
+        // Clean up dead connections
+        let mut dead_connections = Vec::new();
+        for (idx, c) in self.state.connections.iter().enumerate() {
+            let h1_alive = self
+                .state
                 .hyphae
                 .get(c.hypha1)
                 .map(|h| h.alive)
-                .unwrap_or(false)
-                && self
-                    .state
-                    .hyphae
-                    .get(c.hypha2)
-                    .map(|h| h.alive)
-                    .unwrap_or(false)
-        });
+                .unwrap_or(false);
+            let h2_alive = self
+                .state
+                .hyphae
+                .get(c.hypha2)
+                .map(|h| h.alive)
+                .unwrap_or(false);
+            if !h1_alive || !h2_alive {
+                dead_connections.push(idx);
+            }
+        }
+
+        // Remove dead connections in reverse order to maintain indices
+        for &idx in dead_connections.iter().rev() {
+            let c = &self.state.connections[idx];
+            let key = if c.hypha1 < c.hypha2 {
+                (c.hypha1, c.hypha2)
+            } else {
+                (c.hypha2, c.hypha1)
+            };
+            self.state.connection_set.remove(&key);
+            self.state.connections.swap_remove(idx);
+        }
 
         // Resource allocation along connections (diffusive flow)
         for c in &self.state.connections {
@@ -756,31 +842,53 @@ impl Simulation {
             let x1 = (grid_size - 2).min(maxx.saturating_add(pad));
             let y1 = (grid_size - 2).min(maxy.saturating_add(pad));
 
-            let mut diffused = self.state.nutrients.clone();
-            // Diffuse both sugar and nitrogen
-            for x in x0..=x1 {
-                for y in y0..=y1 {
-                    // Sugar diffusion
-                    let avg_sugar = (self.state.nutrients.sugar[x + 1][y]
-                        + self.state.nutrients.sugar[x - 1][y]
-                        + self.state.nutrients.sugar[x][y + 1]
-                        + self.state.nutrients.sugar[x][y - 1])
-                        * 0.25;
-                    diffused.sugar[x][y] +=
-                        self.config.diffusion_rate * (avg_sugar - self.state.nutrients.sugar[x][y]);
+            // Use double buffering: copy active region to back buffer, diffuse, then copy back
+            // We only need to copy the active region plus boundary for diffusion calculations
+            let copy_x0 = x0.saturating_sub(1);
+            let copy_y0 = y0.saturating_sub(1);
+            let copy_x1 = (grid_size - 1).min(x1 + 1);
+            let copy_y1 = (grid_size - 1).min(y1 + 1);
 
-                    // Nitrogen diffusion (slower)
-                    let avg_nitrogen = (self.state.nutrients.nitrogen[x + 1][y]
-                        + self.state.nutrients.nitrogen[x - 1][y]
-                        + self.state.nutrients.nitrogen[x][y + 1]
-                        + self.state.nutrients.nitrogen[x][y - 1])
-                        * 0.25;
-                    diffused.nitrogen[x][y] += self.config.diffusion_rate
-                        * 0.7
-                        * (avg_nitrogen - self.state.nutrients.nitrogen[x][y]);
+            // Copy region needed for diffusion (including boundaries for neighbor access)
+            for x in copy_x0..=copy_x1 {
+                for y in copy_y0..=copy_y1 {
+                    self.state.nutrients_back.sugar[x][y] = self.state.nutrients.sugar[x][y];
+                    self.state.nutrients_back.nitrogen[x][y] = self.state.nutrients.nitrogen[x][y];
                 }
             }
-            self.state.nutrients = diffused;
+
+            // Diffuse both sugar and nitrogen in back buffer (only active region)
+            for x in x0..=x1 {
+                for y in y0..=y1 {
+                    // Sugar diffusion - read from back buffer (which has current values)
+                    let avg_sugar = (self.state.nutrients_back.sugar[x + 1][y]
+                        + self.state.nutrients_back.sugar[x - 1][y]
+                        + self.state.nutrients_back.sugar[x][y + 1]
+                        + self.state.nutrients_back.sugar[x][y - 1])
+                        * 0.25;
+                    self.state.nutrients_back.sugar[x][y] += self.config.diffusion_rate
+                        * (avg_sugar - self.state.nutrients_back.sugar[x][y]);
+
+                    // Nitrogen diffusion (slower)
+                    let avg_nitrogen = (self.state.nutrients_back.nitrogen[x + 1][y]
+                        + self.state.nutrients_back.nitrogen[x - 1][y]
+                        + self.state.nutrients_back.nitrogen[x][y + 1]
+                        + self.state.nutrients_back.nitrogen[x][y - 1])
+                        * 0.25;
+                    self.state.nutrients_back.nitrogen[x][y] += self.config.diffusion_rate
+                        * 0.7
+                        * (avg_nitrogen - self.state.nutrients_back.nitrogen[x][y]);
+                }
+            }
+
+            // Copy only the diffused active region back to main buffer
+            // This preserves the rest of the grid while updating only where needed
+            for x in x0..=x1 {
+                for y in y0..=y1 {
+                    self.state.nutrients.sugar[x][y] = self.state.nutrients_back.sugar[x][y];
+                    self.state.nutrients.nitrogen[x][y] = self.state.nutrients_back.nitrogen[x][y];
+                }
+            }
         }
 
         // spores
@@ -833,9 +941,15 @@ impl Simulation {
             .spores
             .retain(|s| s.alive && s.age < self.config.spore_max_age);
 
-        // fruiting
-        let (hyphae_count, _spores_count, _conn_count, _fruit_count, _avg_energy, total_energy) =
-            self.stats();
+        // fruiting - compute stats inline to avoid borrow conflicts
+        let mut hyphae_count = 0;
+        let mut total_energy = 0.0f32;
+        for h in &self.state.hyphae {
+            if h.alive {
+                hyphae_count += 1;
+                total_energy += h.energy;
+            }
+        }
         let fps = get_fps();
         self.state.fruit_cooldown_timer =
             (self.state.fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
@@ -866,30 +980,58 @@ impl Simulation {
             self.state.fruit_cooldown_timer = self.config.fruiting_cooldown;
         }
 
-        // Energy transfer from hyphae to fruiting bodies
+        // Energy transfer from hyphae to fruiting bodies - use spatial grid
+        let transfer_radius = 15.0f32;
+        let transfer_radius_sq = transfer_radius * transfer_radius;
+        let transfer_cell_range = (transfer_radius / cell_size).ceil() as isize;
+
         for f in &mut self.state.fruit_bodies {
             f.age += 0.01;
             let mut total_transfer = 0.0f32;
-            let transfer_radius = 15.0f32;
-            let transfer_radius_sq = transfer_radius * transfer_radius;
+            let mut transfers: Vec<(usize, f32)> = Vec::new();
 
-            for h in &mut self.state.hyphae {
-                if !h.alive || h.energy < 0.1 {
-                    continue;
-                }
-                let dx = f.x - h.x;
-                let dy = f.y - h.y;
-                let dist_sq = dx * dx + dy * dy;
+            // Use spatial grid to find nearby hyphae
+            let fx = f.x;
+            let fy = f.y;
+            let bx = (fx / cell_size).floor() as isize;
+            let by = (fy / cell_size).floor() as isize;
 
-                if dist_sq < transfer_radius_sq && dist_sq > 0.1 {
-                    let dist = dist_sq.sqrt();
-                    let transfer_rate = 0.01 * (1.0 - dist / transfer_radius).max(0.0);
-                    let transfer = (h.energy * transfer_rate).min(0.05);
-                    if transfer > 0.001 {
-                        h.energy -= transfer;
-                        total_transfer += transfer;
+            for gx in
+                (bx - transfer_cell_range).max(0)..=(bx + transfer_cell_range).min(nx as isize - 1)
+            {
+                for gy in (by - transfer_cell_range).max(0)
+                    ..=(by + transfer_cell_range).min(ny as isize - 1)
+                {
+                    let gux = gx as usize;
+                    let guy = gy as usize;
+                    for &h_idx in &buckets[gux][guy] {
+                        // Store values to avoid borrow issues
+                        let h_x = self.state.hyphae[h_idx].x;
+                        let h_y = self.state.hyphae[h_idx].y;
+                        let h_energy = self.state.hyphae[h_idx].energy;
+                        if !self.state.hyphae[h_idx].alive || h_energy < 0.1 {
+                            continue;
+                        }
+                        let dx = fx - h_x;
+                        let dy = fy - h_y;
+                        let dist_sq = dx * dx + dy * dy;
+
+                        if dist_sq < transfer_radius_sq && dist_sq > 0.1 {
+                            let dist = dist_sq.sqrt();
+                            let transfer_rate = 0.01 * (1.0 - dist / transfer_radius).max(0.0);
+                            let transfer = (h_energy * transfer_rate).min(0.05);
+                            if transfer > 0.001 {
+                                transfers.push((h_idx, transfer));
+                                total_transfer += transfer;
+                            }
+                        }
                     }
                 }
+            }
+
+            // Apply transfers
+            for (h_idx, transfer) in transfers {
+                self.state.hyphae[h_idx].energy -= transfer;
             }
             f.energy = (f.energy + total_transfer).min(1.0);
         }
