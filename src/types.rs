@@ -16,4 +16,7 @@ pub struct FruitBody {
     pub y: f32,
     pub age: f32,
     pub energy: f32,
+    pub lifespan: f32,
+    pub released_spores: bool,
+    pub next_spore_release_age: f32,
 }
