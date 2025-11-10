@@ -2,7 +2,7 @@ use ::rand as external_rand;
 use external_rand::Rng;
 use macroquad::prelude::*;
 
-use crate::simulation::Simulation;
+use crate::simulation::{EditorTool, Simulation};
 
 pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
     // Keyboard controls
@@ -78,5 +78,46 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         let gx = (mx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
         let gy = (my / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
         sim.add_nitrogen_cell(gx, gy);
+    }
+
+    // Editor mode controls
+    if is_key_pressed(KeyCode::E) {
+        sim.toggle_editor_mode();
+    }
+
+    if sim.editor_mode {
+        // Tool selection
+        if is_key_pressed(KeyCode::Key1) {
+            sim.set_editor_tool(EditorTool::Sugar);
+        }
+        if is_key_pressed(KeyCode::Key2) {
+            sim.set_editor_tool(EditorTool::Nitrogen);
+        }
+        if is_key_pressed(KeyCode::Key3) {
+            sim.set_editor_tool(EditorTool::Erase);
+        }
+
+        // Brush size controls
+        if is_key_pressed(KeyCode::Equal) {
+            sim.editor_brush_size = (sim.editor_brush_size + 1).min(20);
+        }
+        if is_key_pressed(KeyCode::Minus) {
+            sim.editor_brush_size = (sim.editor_brush_size.saturating_sub(1)).max(1);
+        }
+
+        // Start simulation from editor
+        if is_key_pressed(KeyCode::Enter) {
+            sim.start_simulation_from_editor(rng);
+        }
+
+        // Drawing with mouse (both pressed and held)
+        if is_mouse_button_down(MouseButton::Left) {
+            let (mx, my) = mouse_position();
+            let gx =
+                (mx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+            let gy =
+                (my / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+            sim.editor_draw_at(gx, gy);
+        }
     }
 }
