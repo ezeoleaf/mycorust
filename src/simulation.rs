@@ -18,7 +18,7 @@ fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
 pub struct SimulationState {
     pub nutrients: NutrientGrid,
     pub nutrients_back: NutrientGrid, // Double buffer for diffusion
-    pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
+    pub obstacles: Vec<Vec<bool>>,
     pub hyphae: Vec<Hypha>,
     pub spores: Vec<Spore>,
     pub segments: Vec<Segment>,
@@ -46,7 +46,7 @@ impl SimulationState {
         Self {
             nutrients: NutrientGrid::new(),
             nutrients_back: NutrientGrid::new(),
-            obstacles: [[false; GRID_SIZE]; GRID_SIZE],
+            obstacles: vec![vec![false; GRID_SIZE]; GRID_SIZE],
             hyphae: Vec::new(),
             spores: Vec::new(),
             segments: Vec::new(),

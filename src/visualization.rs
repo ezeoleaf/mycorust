@@ -22,7 +22,7 @@ pub fn draw_nutrients(nutrients: &NutrientGrid) {
     }
 }
 
-pub fn draw_obstacles(obstacles: &[[bool; GRID_SIZE]; GRID_SIZE]) {
+pub fn draw_obstacles(obstacles: &[Vec<bool>]) {
     #[allow(clippy::needless_range_loop)]
     for x in 0..GRID_SIZE {
         for y in 0..GRID_SIZE {

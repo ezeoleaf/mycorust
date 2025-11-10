@@ -4,15 +4,16 @@ use macroquad::prelude::*;
 // Multi-nutrient grid
 #[derive(Clone)]
 pub struct NutrientGrid {
-    pub sugar: [[f32; GRID_SIZE]; GRID_SIZE],
-    pub nitrogen: [[f32; GRID_SIZE]; GRID_SIZE],
+    pub sugar: Vec<Vec<f32>>,
+    pub nitrogen: Vec<Vec<f32>>,
 }
 
 impl NutrientGrid {
     pub fn new() -> Self {
+        let size = GRID_SIZE;
         Self {
-            sugar: [[0.0f32; GRID_SIZE]; GRID_SIZE],
-            nitrogen: [[0.0f32; GRID_SIZE]; GRID_SIZE],
+            sugar: vec![vec![0.0f32; size]; size],
+            nitrogen: vec![vec![0.0f32; size]; size],
         }
     }
 
