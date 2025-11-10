@@ -30,6 +30,26 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         sim.toggle_hyphae_visibility();
     }
 
+    if is_key_pressed(KeyCode::I) {
+        // Network Intelligence: Toggle memory overlay
+        sim.toggle_memory_visibility();
+    }
+
+    if is_key_pressed(KeyCode::V) {
+        // Performance: Toggle enhanced visualization
+        sim.toggle_enhanced_visualization();
+    }
+
+    if is_key_pressed(KeyCode::F) {
+        // Performance: Toggle flow visualization
+        sim.toggle_flow_visualization();
+    }
+
+    if is_key_pressed(KeyCode::Key1) {
+        // Performance: Toggle stress visualization (number 1 key)
+        sim.toggle_stress_visualization();
+    }
+
     // Speed controls
     if is_key_pressed(KeyCode::Right) {
         sim.increase_speed();

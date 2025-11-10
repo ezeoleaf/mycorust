@@ -78,3 +78,25 @@ pub fn nutrient_gradient(grid: &NutrientGrid, x: f32, y: f32) -> (f32, f32) {
 
     (gx, gy)
 }
+
+// Compute gradient of memory grid (for network intelligence)
+pub fn memory_gradient(memory: &[Vec<f32>], x: f32, y: f32, grid_size: usize) -> (f32, f32) {
+    let xi = x as usize;
+    let yi = y as usize;
+    if xi < 1 || yi < 1 || xi >= grid_size - 1 || yi >= grid_size - 1 {
+        return (0.0, 0.0);
+    }
+    // Sobel-like gradient for memory
+    let m11 = memory[xi - 1][yi - 1];
+    let m12 = memory[xi - 1][yi];
+    let m13 = memory[xi - 1][yi + 1];
+    let m21 = memory[xi][yi - 1];
+    let m23 = memory[xi][yi + 1];
+    let m31 = memory[xi + 1][yi - 1];
+    let m32 = memory[xi + 1][yi];
+    let m33 = memory[xi + 1][yi + 1];
+    let gx = ((m31 + 2.0 * m32 + m33) - (m11 + 2.0 * m12 + m13)) * 0.5;
+    let gy = ((m13 + 2.0 * m23 + m33) - (m11 + 2.0 * m21 + m31)) * 0.5;
+
+    (gx, gy)
+}

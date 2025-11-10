@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
-use crate::nutrients::{nutrient_gradient, NutrientGrid};
+use crate::nutrients::{memory_gradient, nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
 use crate::types::{Connection, FruitBody, Segment};
 
@@ -18,6 +18,7 @@ fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
 pub struct SimulationState {
     pub nutrients: NutrientGrid,
     pub nutrients_back: NutrientGrid, // Double buffer for diffusion
+    pub nutrient_memory: Vec<Vec<f32>>, // Memory grid: decaying weights of nutrient locations
     pub obstacles: Vec<Vec<bool>>,
     pub hyphae: Vec<Hypha>,
     pub spores: Vec<Spore>,
@@ -46,6 +47,7 @@ impl SimulationState {
         Self {
             nutrients: NutrientGrid::new(),
             nutrients_back: NutrientGrid::new(),
+            nutrient_memory: vec![vec![0.0f32; GRID_SIZE]; GRID_SIZE],
             obstacles: vec![vec![false; GRID_SIZE]; GRID_SIZE],
             hyphae: Vec::new(),
             spores: Vec::new(),
@@ -71,8 +73,14 @@ pub struct Simulation {
     pub connections_visible: bool,
     pub minimap_visible: bool,
     pub hyphae_visible: bool,
+    pub memory_visible: bool, // Network Intelligence: Toggle memory overlay
+    pub enhanced_visualization: bool, // Performance: Enhanced visualization with flow/stress
+    pub show_flow: bool,      // Show nutrient flow intensity
+    pub show_stress: bool,    // Show environmental stress
     pub speed_multiplier: f32,
     pub speed_accumulator: f32,
+    // Performance: Cache for visualization (computed once per frame)
+    pub hypha_flow_cache: Vec<f32>, // Pre-computed flow values per hypha
 }
 
 // Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
@@ -124,6 +132,9 @@ impl Simulation {
                 energy: 0.5,
                 parent: None,
                 age: 0.0,
+                strength: 1.0,
+                signal_received: 0.0,
+                last_nutrient_location: None,
             });
         }
 
@@ -134,8 +145,13 @@ impl Simulation {
             connections_visible: true,
             minimap_visible: false,
             hyphae_visible: true,
+            memory_visible: false,         // Memory overlay off by default
+            enhanced_visualization: false, // Enhanced visualization disabled by default for performance
+            show_flow: true,               // Show flow by default
+            show_stress: true,             // Show stress by default
             speed_multiplier: 1.0,
             speed_accumulator: 0.0,
+            hypha_flow_cache: Vec::new(), // Will be computed each frame if needed
         }
     }
 
@@ -251,6 +267,18 @@ impl Simulation {
     pub fn toggle_hyphae_visibility(&mut self) {
         self.hyphae_visible = !self.hyphae_visible;
     }
+    pub fn toggle_memory_visibility(&mut self) {
+        self.memory_visible = !self.memory_visible;
+    }
+    pub fn toggle_enhanced_visualization(&mut self) {
+        self.enhanced_visualization = !self.enhanced_visualization;
+    }
+    pub fn toggle_flow_visualization(&mut self) {
+        self.show_flow = !self.show_flow;
+    }
+    pub fn toggle_stress_visualization(&mut self) {
+        self.show_stress = !self.show_stress;
+    }
     pub fn increase_speed(&mut self) {
         self.speed_multiplier = (self.speed_multiplier * 1.5).min(10.0);
     }
@@ -269,6 +297,15 @@ impl Simulation {
         self.state.fruit_bodies.clear();
         self.state.fruit_cooldown_timer = 0.0;
         self.state.fruiting_failed_attempts = 0;
+
+        // Network Intelligence: Clear memory
+        if self.config.memory_enabled {
+            for x in 0..self.config.grid_size {
+                for y in 0..self.config.grid_size {
+                    self.state.nutrient_memory[x][y] = 0.0;
+                }
+            }
+        }
 
         // Regenerate nutrients with new realistic distribution
         Self::initialize_realistic_nutrients(&mut self.state.nutrients, self.config.grid_size, rng);
@@ -291,6 +328,9 @@ impl Simulation {
             energy: 0.5,
             parent: None,
             age: 0.0,
+            strength: 1.0,
+            signal_received: 0.0,
+            last_nutrient_location: None,
         });
     }
     pub fn clear_segments(&mut self) {
@@ -307,6 +347,9 @@ impl Simulation {
             energy: 0.5,
             parent: None,
             age: 0.0,
+            strength: 1.0,
+            signal_received: 0.0,
+            last_nutrient_location: None,
         });
     }
     pub fn add_nutrient_patch(&mut self, gx: usize, gy: usize) {
@@ -453,6 +496,39 @@ impl Simulation {
     pub fn step<R: Rng>(&mut self, rng: &mut R) {
         self.state.frame_index = self.state.frame_index.wrapping_add(1);
 
+        // Performance: Pre-compute hypha flow cache for visualization (only if enhanced visualization is enabled)
+        if self.enhanced_visualization && self.show_flow {
+            self.hypha_flow_cache.clear();
+            self.hypha_flow_cache.resize(self.state.hyphae.len(), 0.0);
+            for conn in &self.state.connections {
+                if conn.hypha1 < self.hypha_flow_cache.len() {
+                    self.hypha_flow_cache[conn.hypha1] += conn.flow_accumulator;
+                }
+                if conn.hypha2 < self.hypha_flow_cache.len() {
+                    self.hypha_flow_cache[conn.hypha2] += conn.flow_accumulator;
+                }
+            }
+        }
+
+        // Network Intelligence: Decay memory
+        // Performance: Memory decay is already fast (O(n²) but simple operations)
+        // Spatial culling and LOD provide better performance gains
+        if self.config.memory_enabled {
+            let decay_rate = self.config.memory_decay_rate;
+            for x in 0..self.config.grid_size {
+                for y in 0..self.config.grid_size {
+                    self.state.nutrient_memory[x][y] *= decay_rate;
+                }
+            }
+        }
+
+        // Network Intelligence: Decay signals on hyphae
+        if self.config.signal_propagation_enabled {
+            for h in &mut self.state.hyphae {
+                h.signal_received *= self.config.signal_decay_rate;
+            }
+        }
+
         // Age segments
         for segment in &mut self.state.segments {
             segment.age += self.config.segment_age_increment;
@@ -513,6 +589,39 @@ impl Simulation {
                 h.prev_y = h.y;
 
                 let (mut gx, mut gy) = nutrient_gradient(&self.state.nutrients, h.x, h.y);
+
+                // Network Intelligence: Blend memory gradient into growth direction
+                if self.config.memory_enabled && self.config.memory_influence > 0.0 {
+                    let (mx, my) = memory_gradient(
+                        &self.state.nutrient_memory,
+                        h.x,
+                        h.y,
+                        self.config.grid_size,
+                    );
+                    let mem_mag = (mx * mx + my * my).sqrt();
+                    if mem_mag > 0.01 {
+                        // Blend memory gradient with nutrient gradient
+                        let influence = self.config.memory_influence;
+                        gx = gx * (1.0 - influence) + mx * influence;
+                        gy = gy * (1.0 - influence) + my * influence;
+                    }
+                }
+
+                // Network Intelligence: Signal influence on growth direction
+                if self.config.signal_propagation_enabled && h.signal_received > 0.1 {
+                    // Signals can bias growth toward remembered nutrient locations
+                    if let Some((mem_x, mem_y)) = h.last_nutrient_location {
+                        let dx = mem_x - h.x;
+                        let dy = mem_y - h.y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist > 1.0 {
+                            let signal_strength = h.signal_received.min(1.0) * 0.3;
+                            gx += (dx / dist) * signal_strength;
+                            gy += (dy / dist) * signal_strength;
+                        }
+                    }
+                }
+
                 let grad_mag = (gx * gx + gy * gy).sqrt();
                 // Only apply gradient steering if gradient is significant (avoid noise from small gradients)
                 const MIN_GRADIENT_MAG: f32 = 0.08; // Threshold to ignore numerical noise (increased to avoid bias)
@@ -607,12 +716,19 @@ impl Simulation {
                 }
                 let density_slow = 1.0 / (1.0 + 0.05 * neighbor_count);
 
+                // Network Intelligence: Strength affects growth rate
+                let strength_multiplier = if self.config.adaptive_growth_enabled {
+                    h.strength
+                } else {
+                    1.0
+                };
+
                 if too_close {
                     h.angle += rng.gen_range(-0.5..0.5);
                 }
 
-                h.x += h.angle.cos() * self.config.step_size * density_slow;
-                h.y += h.angle.sin() * self.config.step_size * density_slow;
+                h.x += h.angle.cos() * self.config.step_size * density_slow * strength_multiplier;
+                h.y += h.angle.sin() * self.config.step_size * density_slow * strength_multiplier;
 
                 let xi = h.x as usize;
                 let yi = h.y as usize;
@@ -688,6 +804,27 @@ impl Simulation {
                 if total_nutrient > 0.001 {
                     let absorbed = total_nutrient.min(self.config.nutrient_decay);
                     h.energy = (h.energy + absorbed).min(1.0);
+
+                    // Network Intelligence: Update memory when nutrients are found
+                    if self.config.memory_enabled && absorbed > 0.01 {
+                        let memory_update = absorbed * self.config.memory_update_strength;
+                        self.state.nutrient_memory[xi][yi] =
+                            (self.state.nutrient_memory[xi][yi] + memory_update).min(1.0);
+                        h.last_nutrient_location = Some((h.x, h.y));
+
+                        // Adaptive Growth: Strengthen hypha when it finds nutrients
+                        if self.config.adaptive_growth_enabled {
+                            h.strength = (h.strength + absorbed * 0.1).min(1.0);
+                        }
+
+                        // Trigger signal propagation if nutrient discovery is significant
+                        if self.config.signal_propagation_enabled
+                            && total_nutrient > self.config.signal_trigger_nutrient_threshold
+                        {
+                            h.signal_received = 1.0; // Trigger signal at this hypha
+                        }
+                    }
+
                     // Consume proportionally from both types
                     if sugar > 0.0 {
                         let sugar_absorb = (absorbed * sugar / total_nutrient).min(sugar);
@@ -741,6 +878,9 @@ impl Simulation {
                         energy: h.energy * 0.5,
                         parent: Some(idxp),
                         age: 0.0,
+                        strength: h.strength * 0.8, // Branches start slightly weaker
+                        signal_received: 0.0,
+                        last_nutrient_location: h.last_nutrient_location,
                     });
                     h.energy *= 0.5;
                 }
@@ -808,6 +948,9 @@ impl Simulation {
                                     self.state.connections.push(Connection {
                                         hypha1: i,
                                         hypha2: j,
+                                        strength: self.config.min_connection_strength,
+                                        signal: 0.0,
+                                        flow_accumulator: 0.0,
                                     });
                                     let energy_diff = h1_energy - h2_energy;
                                     if energy_diff.abs() > 0.1 {
@@ -863,7 +1006,10 @@ impl Simulation {
         }
 
         // Resource allocation along connections (diffusive flow)
-        for c in &self.state.connections {
+        // Also handle signal propagation and adaptive growth
+        let mut connection_updates: Vec<(usize, f32, f32, f32)> = Vec::new(); // (idx, new_strength, new_signal, flow_acc)
+
+        for (conn_idx, c) in self.state.connections.iter().enumerate() {
             let (i, j) = if c.hypha1 <= c.hypha2 {
                 (c.hypha1, c.hypha2)
             } else {
@@ -878,10 +1024,98 @@ impl Simulation {
             if !h1.alive || !h2.alive {
                 continue;
             }
+
+            // Energy flow (diffusive)
             let diff = h1.energy - h2.energy;
-            let flow = (diff * self.config.connection_flow_rate).clamp(-0.02, 0.02);
+            let base_flow = diff * self.config.connection_flow_rate;
+            // Scale flow by connection strength for adaptive growth
+            let flow = (base_flow * c.strength).clamp(-0.02, 0.02);
             h1.energy = (h1.energy - flow).clamp(0.0, 1.0);
             h2.energy = (h2.energy + flow).clamp(0.0, 1.0);
+
+            // Network Intelligence: Track flow for reinforcement learning
+            let abs_flow = flow.abs();
+            let mut new_flow_acc = c.flow_accumulator + abs_flow;
+            let mut new_strength = c.strength;
+
+            // Adaptive Growth: Strengthen connections with high flow
+            if self.config.adaptive_growth_enabled {
+                if abs_flow > 0.001 {
+                    // Strengthen based on flow
+                    new_strength =
+                        (new_strength + abs_flow * self.config.flow_strengthening_rate).min(1.0);
+                } else {
+                    // Decay strength when no flow
+                    new_strength *= self.config.flow_decay_rate;
+                    new_strength = new_strength.max(self.config.min_connection_strength);
+                }
+                new_flow_acc *= 0.99; // Decay accumulator
+            }
+
+            // Network Intelligence: Signal propagation through connections
+            let mut new_signal = c.signal;
+            if self.config.signal_propagation_enabled {
+                // Propagate signals from hyphae to connections
+                let signal_from_h1 = h1.signal_received * c.strength;
+                let signal_from_h2 = h2.signal_received * c.strength;
+                new_signal = (signal_from_h1 + signal_from_h2) * 0.5;
+
+                // Propagate signals from connections back to hyphae
+                if new_signal > self.config.signal_strength_threshold {
+                    h1.signal_received = (h1.signal_received + new_signal * 0.3).min(1.0);
+                    h2.signal_received = (h2.signal_received + new_signal * 0.3).min(1.0);
+                }
+
+                // Decay signals on connections
+                new_signal *= self.config.signal_decay_rate;
+            }
+
+            connection_updates.push((conn_idx, new_strength, new_signal, new_flow_acc));
+        }
+
+        // Apply connection updates
+        for (idx, strength, signal, flow_acc) in connection_updates {
+            if let Some(c) = self.state.connections.get_mut(idx) {
+                c.strength = strength;
+                c.signal = signal;
+                c.flow_accumulator = flow_acc;
+            }
+        }
+
+        // Network Intelligence: Prune weak connections and branches
+        if self.config.adaptive_growth_enabled {
+            let mut weak_connections = Vec::new();
+            for (idx, c) in self.state.connections.iter().enumerate() {
+                if c.strength < self.config.pruning_threshold {
+                    weak_connections.push(idx);
+                }
+            }
+
+            // Remove weak connections in reverse order
+            for &idx in weak_connections.iter().rev() {
+                let c = &self.state.connections[idx];
+                let key = if c.hypha1 < c.hypha2 {
+                    (c.hypha1, c.hypha2)
+                } else {
+                    (c.hypha2, c.hypha1)
+                };
+                self.state.connection_set.remove(&key);
+                self.state.connections.swap_remove(idx);
+            }
+
+            // Prune weak hyphae branches (those with very low strength and energy)
+            for h in &mut self.state.hyphae {
+                if h.alive
+                    && h.strength < self.config.pruning_threshold * 0.5
+                    && h.energy < self.config.min_energy_to_live * 2.0
+                {
+                    // Weak branch - reduce strength further, may die soon
+                    h.strength *= 0.9;
+                    if h.strength < 0.01 {
+                        h.alive = false;
+                    }
+                }
+            }
         }
 
         // diffuse nutrients (LOD: bounding box + frame skipping)
@@ -1021,6 +1255,9 @@ impl Simulation {
                     energy: 0.5,
                     parent: None,
                     age: 0.0,
+                    strength: 1.0,
+                    signal_received: 0.0,
+                    last_nutrient_location: Some((spore.x, spore.y)), // Remember where we germinated
                 });
                 spore.alive = false;
                 // Particle burst at germination

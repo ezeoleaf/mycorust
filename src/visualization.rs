@@ -22,6 +22,30 @@ pub fn draw_nutrients(nutrients: &NutrientGrid) {
     }
 }
 
+// Network Intelligence: Draw memory overlay (subtle purple/blue tint)
+pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool) {
+    if !memory_visible {
+        return;
+    }
+    for x in 0..GRID_SIZE {
+        for y in 0..GRID_SIZE {
+            let mem_val = memory[x][y];
+            if mem_val > 0.01 {
+                // Subtle purple/blue overlay for memory
+                let alpha = mem_val * 0.3; // Subtle overlay
+                let purple = Color::new(0.5, 0.2, 0.8, alpha);
+                draw_rectangle(
+                    x as f32 * CELL_SIZE,
+                    y as f32 * CELL_SIZE,
+                    CELL_SIZE,
+                    CELL_SIZE,
+                    purple,
+                );
+            }
+        }
+    }
+}
+
 pub fn draw_obstacles(obstacles: &[Vec<bool>]) {
     #[allow(clippy::needless_range_loop)]
     for x in 0..GRID_SIZE {
@@ -40,9 +64,11 @@ pub fn draw_obstacles(obstacles: &[Vec<bool>]) {
 }
 
 pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible: bool) {
-    if !hyphae_visible {
+    if !hyphae_visible || segments.is_empty() {
         return;
     }
+
+    // Performance: LOD - only adjust when FPS is actually low
     let fps = get_fps();
     let step = if fps < 30 {
         3
@@ -51,13 +77,53 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
     } else {
         1
     };
+
+    // Performance: Only do spatial culling if we have many segments (optimization)
+    let use_culling = segments.len() > 500;
+    let (min_x, min_y, max_x, max_y) = if use_culling {
+        let screen_width = screen_width();
+        let screen_height = screen_height();
+        let margin = 100.0;
+        (
+            -margin,
+            -margin,
+            screen_width + margin,
+            screen_height + margin,
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0) // Dummy values, won't be used
+    };
+
     for (i, segment) in segments.iter().enumerate() {
+        // Performance: LOD - skip some segments
         if i % step != 0 {
             continue;
         }
+
+        // Performance: Spatial culling (only if many segments)
+        if use_culling {
+            let mid_x = (segment.from.x + segment.to.x) * 0.5;
+            let mid_y = (segment.from.y + segment.to.y) * 0.5;
+            if mid_x < min_x || mid_x > max_x || mid_y < min_y || mid_y > max_y {
+                continue;
+            }
+        }
+
         let age_factor = 1.0 - (segment.age / max_segment_age);
         let alpha = age_factor.clamp(0.0, 1.0);
-        let color = Color::new(1.0, 1.0, 1.0, alpha);
+
+        // Skip very transparent segments for performance
+        if alpha < 0.05 {
+            continue;
+        }
+
+        // Age-based coloring: young = white, old = dark gray/blue
+        let age_normalized = (segment.age / max_segment_age).min(1.0);
+        let r = 1.0 - age_normalized * 0.7;
+        let g = 1.0 - age_normalized * 0.7;
+        let b = 1.0 - age_normalized * 0.5;
+
+        let color = Color::new(r, g, b, alpha);
         draw_line(
             segment.from.x,
             segment.from.y,
@@ -69,26 +135,187 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
     }
 }
 
+// Enhanced visualization: Draw hyphae with flow intensity and stress coloring
+// Performance: Optimized with cached values and efficient lookups
+pub fn draw_hyphae_enhanced(
+    hyphae: &[crate::hypha::Hypha],
+    _connections: &[Connection], // Not used directly, flow comes from cache
+    show_flow: bool,
+    show_stress: bool,
+    hypha_flow_cache: &[f32], // Pre-computed flow values per hypha index
+) {
+    // Performance: Cache screen dimensions (only call once)
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+    let margin = 50.0;
+    let min_x = -margin;
+    let min_y = -margin;
+    let max_x = screen_width + margin;
+    let max_y = screen_height + margin;
+
+    // Performance: Cache FPS and time (only call once)
+    let fps = get_fps();
+    let t = get_time() as f32;
+    let lod_step = if fps < 30 {
+        3
+    } else if fps < 45 {
+        2
+    } else {
+        1
+    };
+
+    // Draw hyphae as points with enhanced coloring
+    // Performance: Use iterator with early exits
+    for (idx, h) in hyphae.iter().enumerate() {
+        if !h.alive {
+            continue;
+        }
+
+        // Performance: LOD - skip some hyphae
+        if idx % lod_step != 0 {
+            continue;
+        }
+
+        let px = h.x * CELL_SIZE;
+        let py = h.y * CELL_SIZE;
+
+        // Performance: Spatial culling - only draw visible hyphae
+        if px < min_x || px > max_x || py < min_y || py > max_y {
+            continue;
+        }
+
+        let mut color = Color::new(1.0, 1.0, 1.0, 0.8);
+        let mut radius = 2.0;
+
+        // Environmental stress: low energy = red/orange, high energy = white/blue
+        if show_stress {
+            let stress = 1.0 - h.energy;
+            if stress > 0.3 {
+                color.r = 1.0;
+                color.g = 0.5 + stress * 0.5;
+                color.b = 0.2;
+            } else {
+                color.r = 0.8 + h.energy * 0.2;
+                color.g = 0.8 + h.energy * 0.2;
+                color.b = 0.9 + h.energy * 0.1;
+            }
+        }
+
+        // Nutrient flow intensity: use pre-computed cache
+        if show_flow && idx < hypha_flow_cache.len() {
+            let flow = hypha_flow_cache[idx];
+            if flow > 0.01 {
+                let flow_normalized = (flow * 10.0).min(1.0);
+                color.g = (color.g + flow_normalized * 0.5).min(1.0);
+                color.b = (color.b - flow_normalized * 0.3).max(0.0);
+                radius += flow_normalized * 1.5;
+
+                // Pulsing animation for active flow
+                let pulse = (t * 3.0 + flow_normalized * 10.0).sin() * 0.2 + 0.8;
+                color.a *= pulse;
+            }
+        }
+
+        // Age-based size variation
+        radius += h.age * 0.1;
+        radius = radius.min(4.0);
+
+        draw_circle(px, py, radius, color);
+    }
+}
+
 pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connections_visible: bool) {
-    if !connections_visible {
+    if !connections_visible || connections.is_empty() {
         return;
     }
+
+    // Performance: Only do expensive operations if we have many connections
+    let fps = get_fps();
+    let step = if fps < 30 && connections.len() > 200 {
+        2 // Skip every other connection when FPS < 30 and many connections
+    } else {
+        1
+    };
+
+    // Performance: Only do spatial culling if we have many connections
+    let use_culling = connections.len() > 100;
+    let (min_x, min_y, max_x, max_y) = if use_culling {
+        let screen_width = screen_width();
+        let screen_height = screen_height();
+        let margin = 50.0;
+        (
+            -margin,
+            -margin,
+            screen_width + margin,
+            screen_height + margin,
+        )
+    } else {
+        (0.0, 0.0, 0.0, 0.0) // Dummy values
+    };
+
+    // Performance: Cache time (only call once)
     let t = get_time() as f32;
     let pulse = (t * 2.0).sin() * 0.25 + 0.5; // 0.25..0.75
-    for conn in connections {
+
+    for (i, conn) in connections.iter().enumerate() {
+        // Performance: LOD
+        if i % step != 0 {
+            continue;
+        }
+
         if let (Some(h1), Some(h2)) = (hyphae.get(conn.hypha1), hyphae.get(conn.hypha2)) {
             if h1.alive && h2.alive {
+                let x1 = h1.x * CELL_SIZE;
+                let y1 = h1.y * CELL_SIZE;
+                let x2 = h2.x * CELL_SIZE;
+                let y2 = h2.y * CELL_SIZE;
+
+                // Performance: Spatial culling (only if enabled)
+                if use_culling {
+                    let mid_x = (x1 + x2) * 0.5;
+                    let mid_y = (y1 + y2) * 0.5;
+                    if mid_x < min_x || mid_x > max_x || mid_y < min_y || mid_y > max_y {
+                        continue;
+                    }
+                }
+
                 let avg_age = (h1.age + h2.age) * 0.5;
                 let age_fade = (1.0 / (1.0 + avg_age * 0.2)).clamp(0.2, 1.0);
-                let alpha = (0.4 + pulse * 0.4) * age_fade;
-                draw_line(
-                    h1.x * CELL_SIZE,
-                    h1.y * CELL_SIZE,
-                    h2.x * CELL_SIZE,
-                    h2.y * CELL_SIZE,
-                    2.0,
-                    Color::new(0.0, 1.0, 0.5, alpha),
-                );
+
+                // Network Intelligence: Visualize connection strength
+                // Strong connections are brighter and thicker
+                let strength_factor = conn.strength;
+                let thickness = 1.0 + strength_factor * 2.0;
+
+                // Network Intelligence: Visualize signals (pulsing red/orange)
+                let signal_intensity = conn.signal.min(1.0);
+                let base_alpha = (0.4 + pulse * 0.4) * age_fade;
+
+                if signal_intensity > 0.1 {
+                    // Signal propagation: red/orange pulsing
+                    let signal_pulse = (t * 4.0 + signal_intensity * 10.0).sin() * 0.5 + 0.5;
+                    let signal_alpha = base_alpha * signal_intensity * signal_pulse;
+                    draw_line(
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        thickness + signal_intensity * 1.0,
+                        Color::new(1.0, 0.3 + signal_intensity * 0.4, 0.0, signal_alpha),
+                    );
+                } else {
+                    // Normal connection: green, colored by strength
+                    let base_alpha = base_alpha * (0.5 + strength_factor * 0.5);
+                    let green = 0.3 + strength_factor * 0.7;
+                    draw_line(
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        thickness,
+                        Color::new(0.0, green, 0.5, base_alpha),
+                    );
+                }
             }
         }
     }
@@ -221,11 +448,11 @@ pub fn draw_stats_and_help(
         draw_text("PAUSED - Press SPACE to resume", 10.0, 60.0, 20.0, YELLOW);
     }
     let controls_part1_text =
-        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Toggle Connections | M=Toggle Minimap | H=Toggle Hyphae";
+        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Connections | M=Minimap | H=Hyphae | I=Memory";
     draw_text(
         controls_part1_text,
         10.0,
-        screen_height() - 60.0,
+        screen_height() - 100.0,
         16.0,
         Color::new(1.0, 1.0, 1.0, 0.7),
     );
@@ -234,7 +461,7 @@ pub fn draw_stats_and_help(
     draw_text(
         controls_part2_text,
         10.0,
-        screen_height() - 40.0,
+        screen_height() - 80.0,
         16.0,
         Color::new(1.0, 1.0, 1.0, 0.7),
     );
@@ -242,8 +469,24 @@ pub fn draw_stats_and_help(
     draw_text(
         controls_part3_text,
         10.0,
-        screen_height() - 20.0,
+        screen_height() - 60.0,
         16.0,
         Color::new(1.0, 1.0, 1.0, 0.7),
+    );
+    let visualization_text = "Visualization: V=Enhanced | F=Flow | 1=Stress";
+    draw_text(
+        visualization_text,
+        10.0,
+        screen_height() - 40.0,
+        16.0,
+        Color::new(1.0, 1.0, 1.0, 0.7),
+    );
+    let network_intel_text = "Network Intelligence: Signals (red pulses) | Strong connections (bright/thick) | Memory (purple overlay)";
+    draw_text(
+        network_intel_text,
+        10.0,
+        screen_height() - 20.0,
+        14.0,
+        Color::new(0.8, 0.8, 1.0, 0.6),
     );
 }

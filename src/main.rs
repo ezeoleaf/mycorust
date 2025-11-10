@@ -15,8 +15,8 @@ use config::*;
 use controls::handle_controls;
 use simulation::Simulation;
 use visualization::{
-    draw_connections, draw_fruit_bodies, draw_minimap, draw_nutrients, draw_obstacles,
-    draw_segments, draw_stats_and_help,
+    draw_connections, draw_fruit_bodies, draw_hyphae_enhanced, draw_memory_overlay, draw_minimap,
+    draw_nutrients, draw_obstacles, draw_segments, draw_stats_and_help,
 };
 
 #[macroquad::main(window_conf)]
@@ -39,6 +39,7 @@ async fn main() {
         draw_obstacles(&sim.state.obstacles);
 
         // Redraw all past segments to keep trails visible (with fading)
+        // Enhanced: Age-based coloring (young=white, old=dark)
         draw_segments(
             &sim.state.segments,
             sim.config.max_segment_age,
@@ -51,6 +52,21 @@ async fn main() {
             &sim.state.hyphae,
             sim.connections_visible,
         );
+
+        // Network Intelligence: Draw memory overlay
+        draw_memory_overlay(&sim.state.nutrient_memory, sim.memory_visible);
+
+        // Enhanced Visualization: Draw hyphae with flow/stress coloring
+        // Note: This is optional and can impact performance - toggle with 'V'
+        if sim.enhanced_visualization {
+            draw_hyphae_enhanced(
+                &sim.state.hyphae,
+                &sim.state.connections,
+                sim.show_flow,
+                sim.show_stress,
+                &sim.hypha_flow_cache,
+            );
+        }
 
         // Draw fruiting bodies with energy transfer visualization
         draw_fruit_bodies(&sim.state.fruit_bodies, &sim.state.hyphae);

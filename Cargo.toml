@@ -7,3 +7,4 @@ edition = "2021"
 [dependencies]
 macroquad = "0.4.14"
 rand = "0.8"
+rayon = "1.8" # For parallel processing

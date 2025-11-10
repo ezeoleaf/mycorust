@@ -64,6 +64,25 @@ pub struct SimulationConfig {
 
     // Initialization
     pub initial_hyphae_count: usize,
+
+    // Network Intelligence: Signal Propagation
+    pub signal_propagation_enabled: bool,
+    pub signal_decay_rate: f32,
+    pub signal_strength_threshold: f32,
+    pub signal_trigger_nutrient_threshold: f32,
+
+    // Network Intelligence: Adaptive Growth
+    pub adaptive_growth_enabled: bool,
+    pub flow_strengthening_rate: f32,
+    pub flow_decay_rate: f32,
+    pub min_connection_strength: f32,
+    pub pruning_threshold: f32, // Prune branches with strength below this
+
+    // Network Intelligence: Memory & Learning
+    pub memory_enabled: bool,
+    pub memory_decay_rate: f32,
+    pub memory_update_strength: f32,
+    pub memory_influence: f32, // How much memory affects growth direction (0.0-1.0)
 }
 
 impl Default for SimulationConfig {
@@ -107,6 +126,25 @@ impl Default for SimulationConfig {
             nutrient_regen_floor: 0.12,
             nutrient_regen_samples: 120,
             initial_hyphae_count: 5,
+
+            // Network Intelligence: Signal Propagation
+            signal_propagation_enabled: true,
+            signal_decay_rate: 0.95, // Signals decay 5% per frame
+            signal_strength_threshold: 0.1,
+            signal_trigger_nutrient_threshold: 0.5,
+
+            // Network Intelligence: Adaptive Growth
+            adaptive_growth_enabled: true,
+            flow_strengthening_rate: 0.002, // How fast connections strengthen with flow
+            flow_decay_rate: 0.998,         // How fast connection strength decays
+            min_connection_strength: 0.1,
+            pruning_threshold: 0.05, // Prune branches with strength below 5%
+
+            // Network Intelligence: Memory & Learning
+            memory_enabled: true,
+            memory_decay_rate: 0.995,    // Memory decays 0.5% per frame
+            memory_update_strength: 0.3, // How strongly nutrient discoveries update memory
+            memory_influence: 0.15,      // Memory influences 15% of growth direction
         }
     }
 }
