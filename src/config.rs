@@ -83,6 +83,24 @@ pub struct SimulationConfig {
     pub memory_decay_rate: f32,
     pub memory_update_strength: f32,
     pub memory_influence: f32, // How much memory affects growth direction (0.0-1.0)
+
+    // Performance: Growth limits
+    pub max_hyphae: usize, // Maximum number of hyphae (0 = unlimited)
+    pub max_hyphae_branching_threshold: usize, // Stop branching when hyphae count exceeds this
+
+    // Weather
+    pub weather_enabled: bool,
+    pub weather_affects_growth: bool,
+    pub weather_affects_energy: bool,
+
+    // Fusion
+    pub fusion_enabled: bool,
+    pub fusion_distance: f32, // Distance threshold for fusion (should be < anastomosis_distance)
+    pub fusion_energy_transfer: f32, // Energy transfer rate when fusing
+    pub fusion_min_age: f32, // Minimum age for hyphae to be eligible for fusion (prevents immediate fusion after branching)
+
+    // Camera
+    pub camera_enabled: bool, // Enable camera pan/zoom functionality
 }
 
 impl Default for SimulationConfig {
@@ -90,7 +108,7 @@ impl Default for SimulationConfig {
         Self {
             grid_size: 200,
             cell_size: 4.0,
-            branch_prob: 0.0035,
+            branch_prob: 0.008, // Increased from 0.0035 to allow better branching even with weather effects
             step_size: 0.5,
             gradient_steering_strength: 0.1,
             angle_wander_range: 0.05,
@@ -101,8 +119,8 @@ impl Default for SimulationConfig {
             tropism_angle: std::f32::consts::FRAC_PI_4,
             tropism_strength: 0.01,
             obstacle_count: 300,
-            energy_decay_rate: 0.999,
-            min_energy_to_live: 0.01,
+            energy_decay_rate: 0.9985, // Slightly slower decay to allow hyphae to survive longer
+            min_energy_to_live: 0.005, // Lower threshold so hyphae can survive longer
             anastomosis_distance: 2.0,
             connection_flow_rate: 0.02,
             hyphae_avoidance_distance: 2.0,
@@ -145,6 +163,25 @@ impl Default for SimulationConfig {
             memory_decay_rate: 0.995,    // Memory decays 0.5% per frame
             memory_update_strength: 0.3, // How strongly nutrient discoveries update memory
             memory_influence: 0.15,      // Memory influences 15% of growth direction
+
+            // Performance: Growth limits
+            max_hyphae: 2000,                     // Maximum hyphae (0 = unlimited)
+            max_hyphae_branching_threshold: 1500, // Stop branching after this many hyphae
+
+            // Weather
+            weather_enabled: true,
+            weather_affects_growth: true,
+            weather_affects_energy: true,
+
+            // Fusion
+            fusion_enabled: true,
+            fusion_distance: 1.0, // Fuse when hyphae are very close (< 1.0)
+            fusion_energy_transfer: 0.5, // Transfer 50% energy when fusing
+            fusion_min_age: 0.1, // Hyphae must be at least 0.1 age units old to fuse (prevents immediate fusion after branching)
+
+            // Camera
+            // Disabled by default for now until we have a proper camera system
+            camera_enabled: false,
         }
     }
 }

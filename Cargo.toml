@@ -8,3 +8,4 @@ edition = "2021"
 macroquad = "0.4.14"
 rand = "0.8"
 rayon = "1.8" # For parallel processing
+image = "0.24" # For screenshot capture

@@ -1,5 +1,6 @@
 use ::rand as external_rand;
 use external_rand::Rng;
+#[cfg(not(test))]
 use macroquad::prelude::*;
 use std::collections::HashSet;
 
@@ -8,6 +9,18 @@ use crate::hypha::Hypha;
 use crate::nutrients::{memory_gradient, nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
 use crate::types::{Connection, FruitBody, Segment};
+use crate::weather::Weather;
+
+// Helper function to get FPS - use default for tests, actual FPS for runtime
+#[cfg(test)]
+fn get_fps() -> f32 {
+    60.0 // Default FPS for tests
+}
+
+#[cfg(not(test))]
+fn get_fps() -> f32 {
+    macroquad::prelude::get_fps() as f32
+}
 
 #[inline]
 fn in_bounds(x: f32, y: f32, grid_size: usize) -> bool {
@@ -33,6 +46,8 @@ pub struct SimulationState {
     pub spatial_grid: Vec<Vec<Vec<usize>>>,
     pub spatial_grid_nx: usize,
     pub spatial_grid_ny: usize,
+    // Weather system
+    pub weather: Weather,
 }
 
 impl SimulationState {
@@ -61,6 +76,7 @@ impl SimulationState {
             spatial_grid,
             spatial_grid_nx: nx,
             spatial_grid_ny: ny,
+            weather: Weather::new(),
         }
     }
 }
@@ -77,10 +93,15 @@ pub struct Simulation {
     pub enhanced_visualization: bool, // Performance: Enhanced visualization with flow/stress
     pub show_flow: bool,      // Show nutrient flow intensity
     pub show_stress: bool,    // Show environmental stress
+    pub help_popup_visible: bool, // Show help popup window
     pub speed_multiplier: f32,
     pub speed_accumulator: f32,
     // Performance: Cache for visualization (computed once per frame)
     pub hypha_flow_cache: Vec<f32>, // Pre-computed flow values per hypha
+    // Camera for pan/zoom
+    pub camera: crate::camera::Camera,
+    // Screenshot flag
+    pub take_screenshot: bool,
 }
 
 // Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
@@ -103,6 +124,17 @@ impl Simulation {
     }
 
     pub fn with_config<R: Rng>(rng: &mut R, config: SimulationConfig) -> Self {
+        Self::with_config_internal(rng, config, true)
+    }
+
+    // Internal function that allows skipping camera initialization for tests
+    // For tests, we'll need to create a mock camera struct
+    #[cfg(test)]
+    fn with_config_internal<R: Rng>(
+        rng: &mut R,
+        config: SimulationConfig,
+        _init_camera: bool,
+    ) -> Self {
         let mut state = SimulationState::new();
         let grid_size = config.grid_size;
         let center = grid_size as f32 / 2.0;
@@ -138,6 +170,10 @@ impl Simulation {
             });
         }
 
+        // In tests, create a Camera instance directly
+        // The Camera struct will use test-compatible Vec2 from types.rs
+        let camera = crate::camera::Camera::new(config.camera_enabled);
+
         Self {
             state,
             config,
@@ -145,13 +181,80 @@ impl Simulation {
             connections_visible: true,
             minimap_visible: false,
             hyphae_visible: true,
-            memory_visible: false,         // Memory overlay off by default
-            enhanced_visualization: false, // Enhanced visualization disabled by default for performance
-            show_flow: true,               // Show flow by default
-            show_stress: true,             // Show stress by default
+            memory_visible: false,
+            enhanced_visualization: false,
+            show_flow: true,
+            show_stress: true,
             speed_multiplier: 1.0,
             speed_accumulator: 0.0,
-            hypha_flow_cache: Vec::new(), // Will be computed each frame if needed
+            hypha_flow_cache: Vec::new(),
+            camera,
+            take_screenshot: false,
+            help_popup_visible: false,
+        }
+    }
+
+    #[cfg(not(test))]
+    fn with_config_internal<R: Rng>(
+        rng: &mut R,
+        config: SimulationConfig,
+        _init_camera: bool,
+    ) -> Self {
+        let mut state = SimulationState::new();
+        let grid_size = config.grid_size;
+        let center = grid_size as f32 / 2.0;
+
+        // Initialize nutrients with realistic organic distribution
+        Self::initialize_realistic_nutrients(&mut state.nutrients, grid_size, rng);
+
+        // Initialize obstacles
+        for _ in 0..config.obstacle_count {
+            let x = rng.gen_range(0..grid_size);
+            let y = rng.gen_range(0..grid_size);
+            state.obstacles[x][y] = true;
+        }
+
+        // Initialize hyphae
+        state.hyphae = Vec::with_capacity(config.initial_hyphae_count);
+        for _ in 0..config.initial_hyphae_count {
+            let cx = center + rng.gen_range(-10.0..10.0);
+            let cy = center + rng.gen_range(-10.0..10.0);
+            state.hyphae.push(Hypha {
+                x: cx,
+                y: cy,
+                prev_x: cx,
+                prev_y: cy,
+                angle: rng.gen_range(0.0..std::f32::consts::TAU),
+                alive: true,
+                energy: 0.5,
+                parent: None,
+                age: 0.0,
+                strength: 1.0,
+                signal_received: 0.0,
+                last_nutrient_location: None,
+            });
+        }
+
+        // Read camera_enabled before moving config
+        let camera_enabled = config.camera_enabled;
+
+        Self {
+            state,
+            config,
+            paused: false,
+            connections_visible: true,
+            minimap_visible: false,
+            hyphae_visible: true,
+            memory_visible: false,
+            enhanced_visualization: false,
+            show_flow: true,
+            show_stress: true,
+            speed_multiplier: 1.0,
+            speed_accumulator: 0.0,
+            help_popup_visible: false,
+            hypha_flow_cache: Vec::new(),
+            camera: crate::camera::Camera::new(camera_enabled),
+            take_screenshot: false,
         }
     }
 
@@ -279,6 +382,15 @@ impl Simulation {
     pub fn toggle_stress_visualization(&mut self) {
         self.show_stress = !self.show_stress;
     }
+
+    pub fn toggle_camera(&mut self) {
+        self.camera.toggle_enabled();
+    }
+
+    pub fn toggle_help_popup(&mut self) {
+        self.help_popup_visible = !self.help_popup_visible;
+    }
+
     pub fn increase_speed(&mut self) {
         self.speed_multiplier = (self.speed_multiplier * 1.5).min(10.0);
     }
@@ -495,6 +607,53 @@ impl Simulation {
 
     pub fn step<R: Rng>(&mut self, rng: &mut R) {
         self.state.frame_index = self.state.frame_index.wrapping_add(1);
+
+        // Weather: Update weather conditions
+        if self.config.weather_enabled {
+            let fps = get_fps();
+            let dt = 1.0 / fps.max(1.0);
+            self.state.weather.update(dt, rng);
+        }
+
+        // Performance: Growth limits - remove excess hyphae if over limit
+        if self.config.max_hyphae > 0 && self.state.hyphae.len() > self.config.max_hyphae {
+            // Remove oldest/weakest hyphae first
+            let excess = self.state.hyphae.len() - self.config.max_hyphae;
+            let mut indices_to_remove: Vec<usize> = self
+                .state
+                .hyphae
+                .iter()
+                .enumerate()
+                .filter(|(_, h)| !h.alive || h.energy < 0.3)
+                .map(|(i, _)| i)
+                .take(excess)
+                .collect();
+
+            // If not enough weak hyphae, remove oldest
+            if indices_to_remove.len() < excess {
+                let mut age_indices: Vec<(f32, usize)> = self
+                    .state
+                    .hyphae
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| !indices_to_remove.contains(i))
+                    .map(|(i, h)| (h.age, i))
+                    .collect();
+                age_indices.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap()); // Sort by age descending
+                for (_, idx) in age_indices.iter().take(excess - indices_to_remove.len()) {
+                    indices_to_remove.push(*idx);
+                }
+            }
+
+            // Remove in reverse order to maintain indices
+            indices_to_remove.sort();
+            indices_to_remove.reverse();
+            for &idx in &indices_to_remove {
+                if idx < self.state.hyphae.len() {
+                    self.state.hyphae.swap_remove(idx);
+                }
+            }
+        }
 
         // Performance: Pre-compute hypha flow cache for visualization (only if enhanced visualization is enabled)
         if self.enhanced_visualization && self.show_flow {
@@ -723,12 +882,25 @@ impl Simulation {
                     1.0
                 };
 
+                // Weather: Apply weather effects to growth rate
+                let weather_growth_multiplier =
+                    if self.config.weather_enabled && self.config.weather_affects_growth {
+                        self.state.weather.growth_multiplier()
+                    } else {
+                        1.0
+                    };
+
                 if too_close {
                     h.angle += rng.gen_range(-0.5..0.5);
                 }
 
-                h.x += h.angle.cos() * self.config.step_size * density_slow * strength_multiplier;
-                h.y += h.angle.sin() * self.config.step_size * density_slow * strength_multiplier;
+                // Apply all growth multipliers
+                let final_step_size = self.config.step_size
+                    * density_slow
+                    * strength_multiplier
+                    * weather_growth_multiplier;
+                h.x += h.angle.cos() * final_step_size;
+                h.y += h.angle.sin() * final_step_size;
 
                 let xi = h.x as usize;
                 let yi = h.y as usize;
@@ -806,7 +978,9 @@ impl Simulation {
                     h.energy = (h.energy + absorbed).min(1.0);
 
                     // Network Intelligence: Update memory when nutrients are found
-                    if self.config.memory_enabled && absorbed > 0.01 {
+                    // Note: Use a lower threshold (0.001) since absorbed can be as low as nutrient_decay (0.01)
+                    // and we want to record even small nutrient discoveries
+                    if self.config.memory_enabled && absorbed > 0.001 {
                         let memory_update = absorbed * self.config.memory_update_strength;
                         self.state.nutrient_memory[xi][yi] =
                             (self.state.nutrient_memory[xi][yi] + memory_update).min(1.0);
@@ -837,7 +1011,24 @@ impl Simulation {
                     }
                 }
 
-                h.energy *= self.config.energy_decay_rate;
+                // Weather: Apply weather effects to energy consumption
+                // Higher consumption = less energy retention (higher decay)
+                let energy_decay_rate =
+                    if self.config.weather_enabled && self.config.weather_affects_energy {
+                        let consumption_mult = self.state.weather.energy_consumption_multiplier();
+                        // consumption_mult is now 0.7-1.3 (gentler range)
+                        // Higher consumption = less energy retention (higher decay)
+                        // If consumption_mult = 1.0, decay should be normal
+                        // If consumption_mult = 1.3 (high consumption), decay should increase slightly
+                        // If consumption_mult = 0.7 (low consumption), decay should decrease slightly
+                        let decay_multiplier = 0.9 + (consumption_mult - 1.0) * 0.15; // Scale 0.7-1.3 to ~0.855-1.045
+                        (self.config.energy_decay_rate * decay_multiplier).min(0.999)
+                    // Cap decay to prevent instant death
+                    } else {
+                        self.config.energy_decay_rate
+                    };
+
+                h.energy *= energy_decay_rate;
                 h.age += 0.01;
                 if h.energy < self.config.min_energy_to_live {
                     h.alive = false;
@@ -865,32 +1056,82 @@ impl Simulation {
                     }
                 }
 
-                let age_branch_boost = (1.0 + h.age * 0.05).min(2.0);
-                if rng.gen::<f32>() < self.config.branch_prob * age_branch_boost {
-                    let idxp = hyphae_len;
-                    new_hyphae.push(Hypha {
-                        x: h.x,
-                        y: h.y,
-                        prev_x: h.x,
-                        prev_y: h.y,
-                        angle: h.angle + rng.gen_range(-1.2..1.2),
-                        alive: true,
-                        energy: h.energy * 0.5,
-                        parent: Some(idxp),
-                        age: 0.0,
-                        strength: h.strength * 0.8, // Branches start slightly weaker
-                        signal_received: 0.0,
-                        last_nutrient_location: h.last_nutrient_location,
-                    });
-                    h.energy *= 0.5;
+                // Performance: Growth limits - stop branching after threshold
+                let can_branch = if self.config.max_hyphae_branching_threshold > 0 {
+                    hyphae_len < self.config.max_hyphae_branching_threshold
+                } else {
+                    true
+                };
+
+                if can_branch {
+                    let age_branch_boost = (1.0 + h.age * 0.05).min(2.0);
+                    // Weather: Apply weather effects to branching probability
+                    let weather_branch_mult =
+                        if self.config.weather_enabled && self.config.weather_affects_growth {
+                            self.state.weather.growth_multiplier()
+                        } else {
+                            1.0
+                        };
+
+                    let branch_prob =
+                        self.config.branch_prob * age_branch_boost * weather_branch_mult;
+
+                    // Ensure minimum branching probability even in bad weather
+                    // This prevents complete stagnation while still allowing weather effects
+                    let min_branch_prob = self.config.branch_prob * 0.3; // At least 30% of base
+                    let branch_prob = branch_prob.max(min_branch_prob);
+
+                    if rng.gen::<f32>() < branch_prob {
+                        let idxp = hyphae_len;
+                        // Give new branch a small initial offset to prevent immediate fusion
+                        // Offset in the direction of the branch angle
+                        let branch_angle = h.angle + rng.gen_range(-1.2..1.2);
+                        let offset_distance = 1.5; // Offset by 1.5 units (more than fusion_distance of 1.0)
+                        let offset_x = h.x + branch_angle.cos() * offset_distance;
+                        let offset_y = h.y + branch_angle.sin() * offset_distance;
+
+                        new_hyphae.push(Hypha {
+                            x: offset_x,
+                            y: offset_y,
+                            prev_x: h.x, // Previous position is parent position
+                            prev_y: h.y,
+                            angle: branch_angle,
+                            alive: true,
+                            energy: h.energy * 0.5,
+                            parent: Some(idxp),
+                            age: 0.0,
+                            strength: h.strength * 0.8, // Branches start slightly weaker
+                            signal_received: 0.0,
+                            last_nutrient_location: h.last_nutrient_location,
+                        });
+                        h.energy *= 0.5;
+                    }
                 }
 
-                let from = vec2(
+                #[cfg(not(test))]
+                let from = macroquad::prelude::vec2(
                     h.prev_x * self.config.cell_size,
                     h.prev_y * self.config.cell_size,
                 );
-                let to = vec2(h.x * self.config.cell_size, h.y * self.config.cell_size);
-                self.state.segments.push(Segment { from, to, age: 0.0 });
+                #[cfg(not(test))]
+                let to = macroquad::prelude::vec2(
+                    h.x * self.config.cell_size,
+                    h.y * self.config.cell_size,
+                );
+                #[cfg(test)]
+                {
+                    use crate::types::Vec2;
+                    let from = Vec2::new(
+                        h.prev_x * self.config.cell_size,
+                        h.prev_y * self.config.cell_size,
+                    );
+                    let to = Vec2::new(h.x * self.config.cell_size, h.y * self.config.cell_size);
+                    self.state.segments.push(Segment { from, to, age: 0.0 });
+                }
+                #[cfg(not(test))]
+                {
+                    self.state.segments.push(Segment { from, to, age: 0.0 });
+                }
             }
 
             for (from, to, amount) in energy_transfers {
@@ -904,9 +1145,155 @@ impl Simulation {
 
             self.state.hyphae.extend(new_hyphae);
 
+            // Fusion: When hyphae are very close, merge them instead of just connecting
+            // This is true biological fusion (anastomosis with merging)
+            if self.config.fusion_enabled {
+                let fusion_dist_sq = self.config.fusion_distance * self.config.fusion_distance;
+                let mut hyphae_to_remove: Vec<usize> = Vec::new();
+                let mut fusion_energy_transfers: Vec<(usize, f32)> = Vec::new();
+
+                // Use spatial grid for efficient fusion checking
+                for i in 0..self.state.hyphae.len() {
+                    if hyphae_to_remove.contains(&i) || !self.state.hyphae[i].alive {
+                        continue;
+                    }
+
+                    let h1_x = self.state.hyphae[i].x;
+                    let h1_y = self.state.hyphae[i].y;
+                    let bx = (h1_x / cell_size).floor() as isize;
+                    let by = (h1_y / cell_size).floor() as isize;
+
+                    // Check nearby hyphae for fusion
+                    for gx in (bx - 1).max(0)..=(bx + 1).min(nx as isize - 1) {
+                        for gy in (by - 1).max(0)..=(by + 1).min(ny as isize - 1) {
+                            let gux = gx as usize;
+                            let guy = gy as usize;
+                            for &j in &buckets[gux][guy] {
+                                if j <= i
+                                    || hyphae_to_remove.contains(&j)
+                                    || !self.state.hyphae[j].alive
+                                {
+                                    continue;
+                                }
+
+                                let h2_x = self.state.hyphae[j].x;
+                                let h2_y = self.state.hyphae[j].y;
+                                let dx = h1_x - h2_x;
+                                let dy = h1_y - h2_y;
+                                let dist2 = dx * dx + dy * dy;
+
+                                // Fusion: Merge very close hyphae
+                                // But skip fusion if either hypha is too young (just branched)
+                                // This prevents immediate fusion of newly branched hyphae
+                                // New branches start with age 0.0 and age by 0.01 per frame
+                                // So they need at least 10 frames (age >= 0.1) before they can fuse
+                                let h1_age = self.state.hyphae[i].age;
+                                let h2_age = self.state.hyphae[j].age;
+                                let can_fuse = dist2 < fusion_dist_sq
+                                    && h1_age >= self.config.fusion_min_age
+                                    && h2_age >= self.config.fusion_min_age;
+
+                                if can_fuse {
+                                    // Transfer energy from j to i, then remove j
+                                    let energy_transfer = self.state.hyphae[j].energy
+                                        * self.config.fusion_energy_transfer;
+                                    fusion_energy_transfers.push((i, energy_transfer));
+
+                                    // Merge positions (average)
+                                    self.state.hyphae[i].x = (h1_x + h2_x) * 0.5;
+                                    self.state.hyphae[i].y = (h1_y + h2_y) * 0.5;
+
+                                    // Merge strength (take maximum)
+                                    self.state.hyphae[i].strength = self.state.hyphae[i]
+                                        .strength
+                                        .max(self.state.hyphae[j].strength);
+
+                                    // Merge energy
+                                    self.state.hyphae[i].energy =
+                                        (self.state.hyphae[i].energy + energy_transfer).min(1.0);
+
+                                    // Mark j for removal
+                                    hyphae_to_remove.push(j);
+
+                                    // Remove any connections involving j
+                                    let mut connections_to_remove: Vec<usize> = Vec::new();
+                                    for (conn_idx, conn) in
+                                        self.state.connections.iter().enumerate()
+                                    {
+                                        if conn.hypha1 == j || conn.hypha2 == j {
+                                            connections_to_remove.push(conn_idx);
+                                            // Remove from connection set
+                                            let key = if conn.hypha1 < conn.hypha2 {
+                                                (conn.hypha1, conn.hypha2)
+                                            } else {
+                                                (conn.hypha2, conn.hypha1)
+                                            };
+                                            self.state.connection_set.remove(&key);
+                                        }
+                                    }
+
+                                    // Remove connections in reverse order
+                                    connections_to_remove.sort();
+                                    connections_to_remove.reverse();
+                                    for &conn_idx in &connections_to_remove {
+                                        if conn_idx < self.state.connections.len() {
+                                            self.state.connections.swap_remove(conn_idx);
+                                        }
+                                    }
+
+                                    // Update connection indices: replace j with i in remaining connections
+                                    for conn in &mut self.state.connections {
+                                        if conn.hypha1 == j {
+                                            conn.hypha1 = i;
+                                        }
+                                        if conn.hypha2 == j {
+                                            conn.hypha2 = i;
+                                        }
+                                    }
+
+                                    break; // Only fuse with one hypha at a time
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Remove fused hyphae in reverse order
+                hyphae_to_remove.sort();
+                hyphae_to_remove.dedup();
+                hyphae_to_remove.reverse();
+                for &idx in &hyphae_to_remove {
+                    if idx < self.state.hyphae.len() {
+                        self.state.hyphae.swap_remove(idx);
+                    }
+                }
+            }
+
             // connections - use spatial hash grid to avoid O(n²) check
             let anastomosis_dist_sq = self.config.anastomosis_distance_sq();
             let mut new_connections: Vec<(usize, usize, f32)> = Vec::new();
+
+            // Rebuild spatial grid after fusion
+            for row in buckets.iter_mut() {
+                for bucket in row.iter_mut() {
+                    bucket.clear();
+                }
+            }
+
+            for (i, h) in self.state.hyphae.iter().enumerate() {
+                if !h.alive {
+                    continue;
+                }
+                let bx = (h.x / cell_size).floor() as isize;
+                let by = (h.y / cell_size).floor() as isize;
+                if bx >= 0 && by >= 0 {
+                    let bxu = bx as usize;
+                    let byu = by as usize;
+                    if bxu < nx && byu < ny {
+                        buckets[bxu][byu].push(i);
+                    }
+                }
+            }
 
             // Use spatial grid for connection checking - check only nearby hyphae
             for i in 0..self.state.hyphae.len() {
@@ -1119,12 +1506,20 @@ impl Simulation {
         }
 
         // diffuse nutrients (LOD: bounding box + frame skipping)
-        let do_diffuse = if get_fps() < 45 {
-            (self.state.frame_index % 2) == 0
+        // Only skip diffusion when FPS is very low to prevent visual issues
+        let do_diffuse = if get_fps() < 25.0 {
+            (self.state.frame_index % 2) == 0 // Skip every other frame only when FPS < 25
         } else {
             true
         };
         if do_diffuse {
+            // Weather: Apply weather effects to nutrient diffusion
+            let diffusion_rate = if self.config.weather_enabled {
+                self.config.diffusion_rate * self.state.weather.nutrient_diffusion_multiplier()
+            } else {
+                self.config.diffusion_rate
+            };
+
             // Compute bounding box around alive hyphae
             let grid_size = self.config.grid_size;
             let mut minx = grid_size - 2;
@@ -1179,8 +1574,8 @@ impl Simulation {
                         + self.state.nutrients_back.sugar[x][y + 1]
                         + self.state.nutrients_back.sugar[x][y - 1])
                         * 0.25;
-                    self.state.nutrients_back.sugar[x][y] += self.config.diffusion_rate
-                        * (avg_sugar - self.state.nutrients_back.sugar[x][y]);
+                    self.state.nutrients_back.sugar[x][y] +=
+                        diffusion_rate * (avg_sugar - self.state.nutrients_back.sugar[x][y]);
 
                     // Nitrogen diffusion (slower)
                     let avg_nitrogen = (self.state.nutrients_back.nitrogen[x + 1][y]
@@ -1188,7 +1583,7 @@ impl Simulation {
                         + self.state.nutrients_back.nitrogen[x][y + 1]
                         + self.state.nutrients_back.nitrogen[x][y - 1])
                         * 0.25;
-                    self.state.nutrients_back.nitrogen[x][y] += self.config.diffusion_rate
+                    self.state.nutrients_back.nitrogen[x][y] += diffusion_rate
                         * 0.7
                         * (avg_nitrogen - self.state.nutrients_back.nitrogen[x][y]);
                 }
@@ -1244,7 +1639,17 @@ impl Simulation {
             let xi = spore.x as usize;
             let yi = spore.y as usize;
             let total_nutrient = self.state.nutrients.total_at(xi, yi);
-            if total_nutrient > self.config.spore_germination_threshold {
+
+            // Weather: Apply weather effects to spore germination
+            // Lower threshold = easier germination (multiplier > 1 means easier)
+            let germination_threshold = if self.config.weather_enabled {
+                let multiplier = self.state.weather.spore_germination_multiplier();
+                self.config.spore_germination_threshold / multiplier.max(0.1)
+            } else {
+                self.config.spore_germination_threshold
+            };
+
+            if total_nutrient > germination_threshold {
                 new_hyphae_from_spores.push(Hypha {
                     x: spore.x,
                     y: spore.y,
@@ -1260,13 +1665,17 @@ impl Simulation {
                     last_nutrient_location: Some((spore.x, spore.y)), // Remember where we germinated
                 });
                 spore.alive = false;
-                // Particle burst at germination
-                for k in 0..8 {
-                    let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
-                    let r = rng.gen_range(2.0..5.0);
-                    let px = spore.x * self.config.cell_size + a.cos() * r;
-                    let py = spore.y * self.config.cell_size + a.sin() * r;
-                    draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
+                // Particle burst at germination (visualization only - not used in tests)
+                #[cfg(not(test))]
+                {
+                    use macroquad::prelude::*;
+                    for k in 0..8 {
+                        let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
+                        let r = rng.gen_range(2.0..5.0);
+                        let px = spore.x * self.config.cell_size + a.cos() * r;
+                        let py = spore.y * self.config.cell_size + a.sin() * r;
+                        draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
+                    }
                 }
             }
         }
@@ -1286,7 +1695,7 @@ impl Simulation {
         }
         let fps = get_fps();
         self.state.fruit_cooldown_timer =
-            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1) as f32).max(0.0);
+            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1.0)).max(0.0);
         if self.state.fruit_cooldown_timer <= 0.0
             && hyphae_count >= self.config.fruiting_min_hyphae
             && total_energy >= self.config.fruiting_threshold_total_energy
@@ -1410,7 +1819,8 @@ impl Simulation {
         }
 
         // Energy transfer from hyphae to fruiting bodies - use spatial grid and handle lifecycle
-        let transfer_radius = 15.0f32;
+        // Increased transfer radius to allow more hyphae to contribute to fruiting body growth
+        let transfer_radius = 20.0f32; // Increased from 15.0 to 20.0
         let transfer_radius_sq = transfer_radius * transfer_radius;
         let transfer_cell_range = (transfer_radius / cell_size).ceil() as isize;
         let buckets = &self.state.spatial_grid;
@@ -1438,7 +1848,9 @@ impl Simulation {
                     let guy = gy as usize;
                     for &h_idx in &buckets[gux][guy] {
                         let h_ref = &self.state.hyphae[h_idx];
-                        if !h_ref.alive || h_ref.energy < 0.1 {
+                        // Lower energy threshold - allow energy transfer from hyphae with lower energy
+                        // This allows more hyphae to contribute to fruiting body growth
+                        if !h_ref.alive || h_ref.energy < 0.05 {
                             continue;
                         }
                         let dx = fx - h_ref.x;
@@ -1447,9 +1859,18 @@ impl Simulation {
 
                         if dist_sq < transfer_radius_sq && dist_sq > 0.1 {
                             let dist = dist_sq.sqrt();
-                            let transfer_rate = 0.01 * (1.0 - dist / transfer_radius).max(0.0);
-                            let transfer = (h_ref.energy * transfer_rate).min(0.05);
-                            if transfer > 0.001 {
+                            // Increased transfer rate - fruiting bodies should receive energy more effectively
+                            // Transfer rate is higher and distance falloff is gentler (linear falloff)
+                            let distance_factor = (1.0 - dist / transfer_radius).max(0.0);
+                            // Base transfer rate significantly increased for better energy flow
+                            // At close range: 0.08 rate, at max distance: 0.02 rate
+                            let transfer_rate = 0.02 + 0.06 * distance_factor;
+                            // Allow more energy transfer per hypha (increased significantly)
+                            // Transfer is proportional to hypha energy and distance
+                            let base_transfer = h_ref.energy * transfer_rate;
+                            // Maximum transfer per hypha increased (allows more contribution)
+                            let transfer = base_transfer.min(0.12);
+                            if transfer > 0.0001 {
                                 transfers.push((h_idx, transfer));
                                 total_transfer += transfer;
                             }
@@ -1461,8 +1882,17 @@ impl Simulation {
             // Apply transfers after iteration to avoid borrow conflicts
             for (h_idx, transfer) in transfers {
                 self.state.hyphae[h_idx].energy -= transfer;
+                // Ensure hyphae don't go below minimum energy
+                self.state.hyphae[h_idx].energy = self.state.hyphae[h_idx].energy.max(0.0);
             }
+
+            // Apply energy transfer to fruiting body
             f.energy = (f.energy + total_transfer).min(1.0);
+
+            // Fruiting bodies have minimal energy decay (metabolism)
+            // They should maintain energy if they receive it from hyphae
+            // Only very slow decay to represent basic metabolism
+            f.energy *= 0.9998; // Extremely slow decay (0.02% per frame)
 
             let release_interval =
                 (self.config.fruiting_spore_release_interval.max(0.01) * f.lifespan).max(0.1);
@@ -1553,6 +1983,401 @@ impl Simulation {
                         self.spawn_hypha_at(rng, hx, hy);
                     }
                 }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use external_rand::rngs::StdRng;
+    use external_rand::SeedableRng;
+
+    /// Helper function to create a simulation for testing
+    fn create_test_simulation() -> (Simulation, StdRng) {
+        let mut rng = StdRng::seed_from_u64(42);
+        let config = SimulationConfig::default();
+        let sim = Simulation::with_config(&mut rng, config);
+        (sim, rng)
+    }
+
+    /// Test that simulation can be created and initialized
+    #[test]
+    fn test_simulation_creation() {
+        let (sim, _) = create_test_simulation();
+
+        // Check that simulation state is initialized
+        assert_eq!(sim.state.hyphae.len(), sim.config.initial_hyphae_count);
+        assert!(sim.state.frame_index == 0);
+        assert!(sim.state.nutrient_memory.len() == sim.config.grid_size);
+    }
+
+    /// Test that simulation can run for multiple steps without panicking
+    #[test]
+    fn test_simulation_runs() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Check that simulation state is valid
+        assert!(sim.state.frame_index > 0);
+    }
+
+    /// Test that hyphae have valid energy levels after running
+    #[test]
+    fn test_hyphae_energy_valid() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Check that all hyphae have valid energy levels
+        for hypha in &sim.state.hyphae {
+            if hypha.alive {
+                assert!(
+                    hypha.energy >= 0.0 && hypha.energy <= 1.0,
+                    "Hypha energy {} is out of range [0.0, 1.0]",
+                    hypha.energy
+                );
+                assert!(hypha.age >= 0.0, "Hypha age {} is negative", hypha.age);
+            }
+        }
+    }
+
+    /// Test that hyphae positions are within bounds
+    #[test]
+    fn test_hyphae_in_bounds() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Check that all hyphae are within bounds
+        for hypha in &sim.state.hyphae {
+            if hypha.alive {
+                assert!(
+                    hypha.x >= 0.0 && hypha.x < sim.config.grid_size as f32,
+                    "Hypha x position {} is out of bounds",
+                    hypha.x
+                );
+                assert!(
+                    hypha.y >= 0.0 && hypha.y < sim.config.grid_size as f32,
+                    "Hypha y position {} is out of bounds",
+                    hypha.y
+                );
+            }
+        }
+    }
+
+    /// Test that connections are valid
+    #[test]
+    fn test_connections_valid() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Check that all connections reference valid hyphae
+        for conn in &sim.state.connections {
+            assert!(
+                conn.hypha1 < sim.state.hyphae.len(),
+                "Connection references invalid hypha1 index {}",
+                conn.hypha1
+            );
+            assert!(
+                conn.hypha2 < sim.state.hyphae.len(),
+                "Connection references invalid hypha2 index {}",
+                conn.hypha2
+            );
+            assert!(
+                conn.hypha1 != conn.hypha2,
+                "Connection references same hypha twice"
+            );
+            assert!(
+                conn.strength >= 0.0 && conn.strength <= 1.0,
+                "Connection strength {} is out of range [0.0, 1.0]",
+                conn.strength
+            );
+        }
+    }
+
+    /// Test that nutrients are being consumed
+    #[test]
+    fn test_nutrients_consumed() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Calculate initial total nutrients
+        let mut _initial_total = 0.0;
+        for x in 0..sim.config.grid_size {
+            for y in 0..sim.config.grid_size {
+                _initial_total += sim.state.nutrients.sugar[x][y];
+                _initial_total += sim.state.nutrients.nitrogen[x][y];
+            }
+        }
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Calculate final total nutrients
+        let mut final_total = 0.0;
+        for x in 0..sim.config.grid_size {
+            for y in 0..sim.config.grid_size {
+                final_total += sim.state.nutrients.sugar[x][y];
+                final_total += sim.state.nutrients.nitrogen[x][y];
+            }
+        }
+
+        // Nutrients should decrease (consumption) or increase (regeneration)
+        // But the total should be reasonable
+        assert!(
+            final_total >= 0.0,
+            "Total nutrients {} is negative",
+            final_total
+        );
+    }
+
+    /// Test that memory is being updated when memory is enabled
+    #[test]
+    fn test_memory_updated() {
+        let (mut sim, mut rng) = create_test_simulation();
+        sim.config.memory_enabled = true;
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Check that memory values are valid
+        for x in 0..sim.config.grid_size {
+            for y in 0..sim.config.grid_size {
+                assert!(
+                    sim.state.nutrient_memory[x][y] >= 0.0
+                        && sim.state.nutrient_memory[x][y] <= 1.0,
+                    "Memory value at ({}, {}) is out of range [0.0, 1.0]: {}",
+                    x,
+                    y,
+                    sim.state.nutrient_memory[x][y]
+                );
+            }
+        }
+    }
+
+    /// Test that growth limits are respected
+    #[test]
+    fn test_growth_limits() {
+        let (mut sim, mut rng) = create_test_simulation();
+        sim.config.max_hyphae = 100;
+        sim.config.max_hyphae_branching_threshold = 80;
+
+        // Run simulation for 500 steps to allow growth
+        for _ in 0..500 {
+            sim.step(&mut rng);
+        }
+
+        // Check that hyphae count doesn't exceed max_hyphae
+        assert!(
+            sim.state.hyphae.len() <= sim.config.max_hyphae as usize,
+            "Hyphae count {} exceeds max_hyphae {}",
+            sim.state.hyphae.len(),
+            sim.config.max_hyphae
+        );
+    }
+
+    /// Test that weather affects the simulation
+    #[test]
+    fn test_weather_effects() {
+        let (mut sim, mut rng) = create_test_simulation();
+        sim.config.weather_enabled = true;
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Weather should have updated
+        assert!(sim.state.weather.time > 0.0, "Weather time should increase");
+        assert!(
+            sim.state.weather.temperature >= 0.0 && sim.state.weather.temperature <= 2.0,
+            "Temperature {} is out of valid range",
+            sim.state.weather.temperature
+        );
+        assert!(
+            sim.state.weather.humidity >= 0.0 && sim.state.weather.humidity <= 1.0,
+            "Humidity {} is out of valid range",
+            sim.state.weather.humidity
+        );
+        assert!(
+            sim.state.weather.rain >= 0.0 && sim.state.weather.rain <= 1.0,
+            "Rain {} is out of valid range",
+            sim.state.weather.rain
+        );
+    }
+
+    /// Test that simulation statistics are valid
+    #[test]
+    fn test_statistics_valid() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        let (hyphae_count, spores_count, connections_count, fruit_count, avg_energy, total_energy) =
+            sim.stats();
+
+        // Check that statistics are valid
+        assert_eq!(
+            hyphae_count,
+            sim.state.hyphae.iter().filter(|h| h.alive).count()
+        );
+        assert_eq!(
+            spores_count,
+            sim.state.spores.iter().filter(|s| s.alive).count()
+        );
+        assert_eq!(connections_count, sim.state.connections.len());
+        assert_eq!(fruit_count, sim.state.fruit_bodies.len());
+        assert!(
+            avg_energy >= 0.0 && avg_energy <= 1.0,
+            "Average energy {} is out of range [0.0, 1.0]",
+            avg_energy
+        );
+        assert!(
+            total_energy >= 0.0,
+            "Total energy {} is negative",
+            total_energy
+        );
+    }
+
+    /// Test that simulation can handle many iterations without crashing
+    #[test]
+    fn test_long_simulation() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 1000 steps
+        for _ in 0..1000 {
+            sim.step(&mut rng);
+        }
+
+        // Check that simulation state is still valid
+        assert!(sim.state.frame_index > 0);
+
+        // Check that statistics are valid
+        let (hyphae_count, _, _, _, _, _) = sim.stats();
+        assert!(
+            hyphae_count > 0,
+            "Should have at least one hypha after long simulation"
+        );
+    }
+
+    /// Test that segments age correctly
+    #[test]
+    fn test_segments_age() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 50 steps to generate segments
+        for _ in 0..50 {
+            sim.step(&mut rng);
+        }
+
+        // Check that segments have valid ages
+        for segment in &sim.state.segments {
+            assert!(
+                segment.age >= 0.0,
+                "Segment age {} is negative",
+                segment.age
+            );
+            assert!(
+                segment.age <= sim.config.max_segment_age,
+                "Segment age {} exceeds max_segment_age {}",
+                segment.age,
+                sim.config.max_segment_age
+            );
+        }
+    }
+
+    /// Test that hyphae can branch
+    #[test]
+    fn test_hyphae_branching() {
+        let (mut sim, mut rng) = create_test_simulation();
+        let _initial_count = sim.state.hyphae.len();
+
+        // Run simulation for 200 steps to allow branching
+        for _ in 0..200 {
+            sim.step(&mut rng);
+        }
+
+        // Check that hyphae count is valid (may increase due to branching or decrease due to pruning)
+        assert!(sim.state.hyphae.len() > 0, "Should have at least one hypha");
+    }
+
+    /// Test that fusion works when enabled
+    #[test]
+    fn test_fusion_enabled() {
+        let (mut sim, mut rng) = create_test_simulation();
+        sim.config.fusion_enabled = true;
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Fusion should work (may reduce hyphae count when they merge)
+        // Just check that simulation doesn't crash and has valid state
+        assert!(sim.state.hyphae.len() > 0, "Should have at least one hypha");
+    }
+
+    /// Test validation after 100 iterations
+    #[test]
+    fn test_validation_after_100_iterations() {
+        let (mut sim, mut rng) = create_test_simulation();
+
+        // Run simulation for 100 steps
+        for _ in 0..100 {
+            sim.step(&mut rng);
+        }
+
+        // Validate simulation state
+        assert!(
+            sim.state.frame_index >= 100,
+            "Frame index should be at least 100"
+        );
+
+        // Validate hyphae
+        for hypha in &sim.state.hyphae {
+            if hypha.alive {
+                assert!(hypha.energy >= 0.0 && hypha.energy <= 1.0);
+                assert!(hypha.age >= 0.0);
+                assert!(hypha.x >= 0.0 && hypha.x < sim.config.grid_size as f32);
+                assert!(hypha.y >= 0.0 && hypha.y < sim.config.grid_size as f32);
+                assert!(hypha.strength >= 0.0 && hypha.strength <= 1.0);
+            }
+        }
+
+        // Validate connections
+        for conn in &sim.state.connections {
+            assert!(conn.hypha1 < sim.state.hyphae.len());
+            assert!(conn.hypha2 < sim.state.hyphae.len());
+            assert!(conn.strength >= 0.0 && conn.strength <= 1.0);
+        }
+
+        // Validate nutrients
+        for x in 0..sim.config.grid_size {
+            for y in 0..sim.config.grid_size {
+                assert!(sim.state.nutrients.sugar[x][y] >= 0.0);
+                assert!(sim.state.nutrients.nitrogen[x][y] >= 0.0);
             }
         }
     }

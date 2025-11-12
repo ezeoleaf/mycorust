@@ -1,6 +1,7 @@
 use macroquad::prelude::*;
 
 use crate::config::*;
+use crate::controls::get_controls_text;
 use crate::hypha::Hypha;
 use crate::nutrients::{nutrient_color, NutrientGrid};
 use crate::types::{Connection, FruitBody, Segment};
@@ -30,10 +31,14 @@ pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool) {
     for x in 0..GRID_SIZE {
         for y in 0..GRID_SIZE {
             let mem_val = memory[x][y];
-            if mem_val > 0.01 {
-                // Subtle purple/blue overlay for memory
-                let alpha = mem_val * 0.3; // Subtle overlay
-                let purple = Color::new(0.5, 0.2, 0.8, alpha);
+            // Lower threshold to show memory values that accumulate over time
+            // Memory values are small (0.003 max per update) but accumulate, so threshold of 0.001 is appropriate
+            if mem_val > 0.001 {
+                // Purple/blue overlay for memory
+                // Scale alpha more aggressively to make memory visible even at low values
+                // Memory values range from ~0.001 to 1.0, so we scale to make them visible
+                let alpha = (mem_val * 0.5).min(0.6); // More visible overlay, capped at 0.6 for readability
+                let purple = Color::new(0.6, 0.2, 0.9, alpha); // Brighter purple for better visibility
                 draw_rectangle(
                     x as f32 * CELL_SIZE,
                     y as f32 * CELL_SIZE,
@@ -68,18 +73,28 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
         return;
     }
 
-    // Performance: LOD - only adjust when FPS is actually low
+    // Performance: Use adaptive quality reduction instead of skipping to prevent blinking
+    // This maintains visibility while improving performance
     let fps = get_fps();
-    let step = if fps < 30 {
-        3
-    } else if fps < 45 {
-        2
+
+    // Calculate quality factor based on FPS (1.0 = full quality, 0.7 = reduced quality)
+    let quality_factor = if fps < 20 {
+        0.7 // Reduce quality when FPS is very low
+    } else if fps < 35 {
+        0.85 // Slightly reduce quality when FPS is moderate
     } else {
-        1
+        1.0 // Full quality when FPS is good
+    };
+
+    // Adjust alpha threshold based on quality (skip more transparent segments when quality is low)
+    let alpha_threshold = if quality_factor < 0.8 {
+        0.03 // Skip more transparent segments
+    } else {
+        0.02 // Normal threshold
     };
 
     // Performance: Only do spatial culling if we have many segments (optimization)
-    let use_culling = segments.len() > 500;
+    let use_culling = segments.len() > 1500; // Increased threshold to reduce culling overhead
     let (min_x, min_y, max_x, max_y) = if use_culling {
         let screen_width = screen_width();
         let screen_height = screen_height();
@@ -94,12 +109,7 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
         (0.0, 0.0, 0.0, 0.0) // Dummy values, won't be used
     };
 
-    for (i, segment) in segments.iter().enumerate() {
-        // Performance: LOD - skip some segments
-        if i % step != 0 {
-            continue;
-        }
-
+    for segment in segments.iter() {
         // Performance: Spatial culling (only if many segments)
         if use_culling {
             let mid_x = (segment.from.x + segment.to.x) * 0.5;
@@ -113,7 +123,7 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
         let alpha = age_factor.clamp(0.0, 1.0);
 
         // Skip very transparent segments for performance
-        if alpha < 0.05 {
+        if alpha < alpha_threshold {
             continue;
         }
 
@@ -123,13 +133,18 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
         let g = 1.0 - age_normalized * 0.7;
         let b = 1.0 - age_normalized * 0.5;
 
-        let color = Color::new(r, g, b, alpha);
+        // Reduce line thickness and alpha based on quality factor instead of skipping
+        // This maintains visibility while improving performance
+        let line_thickness = 1.5 * quality_factor;
+        let adjusted_alpha = alpha * (0.7 + quality_factor * 0.3); // Reduce alpha slightly when quality is low
+
+        let color = Color::new(r, g, b, adjusted_alpha);
         draw_line(
             segment.from.x,
             segment.from.y,
             segment.to.x,
             segment.to.y,
-            1.5,
+            line_thickness,
             color,
         );
     }
@@ -156,23 +171,20 @@ pub fn draw_hyphae_enhanced(
     // Performance: Cache FPS and time (only call once)
     let fps = get_fps();
     let t = get_time() as f32;
-    let lod_step = if fps < 30 {
-        3
-    } else if fps < 45 {
-        2
+
+    // Use adaptive quality reduction instead of skipping to prevent blinking
+    let quality_factor = if fps < 20 {
+        0.7 // Reduce quality when FPS is very low
+    } else if fps < 35 {
+        0.85 // Slightly reduce quality when FPS is moderate
     } else {
-        1
+        1.0 // Full quality when FPS is good
     };
 
     // Draw hyphae as points with enhanced coloring
     // Performance: Use iterator with early exits
     for (idx, h) in hyphae.iter().enumerate() {
         if !h.alive {
-            continue;
-        }
-
-        // Performance: LOD - skip some hyphae
-        if idx % lod_step != 0 {
             continue;
         }
 
@@ -184,8 +196,11 @@ pub fn draw_hyphae_enhanced(
             continue;
         }
 
-        let mut color = Color::new(1.0, 1.0, 1.0, 0.8);
-        let mut radius = 2.0;
+        // Reduce radius and alpha based on quality factor instead of skipping
+        let base_radius = 2.0;
+        let base_alpha = 0.8;
+        let mut color = Color::new(1.0, 1.0, 1.0, base_alpha * quality_factor);
+        let mut radius = base_radius * quality_factor;
 
         // Environmental stress: low energy = red/orange, high energy = white/blue
         if show_stress {
@@ -229,16 +244,20 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
         return;
     }
 
-    // Performance: Only do expensive operations if we have many connections
+    // Performance: Use adaptive quality reduction instead of skipping
     let fps = get_fps();
-    let step = if fps < 30 && connections.len() > 200 {
-        2 // Skip every other connection when FPS < 30 and many connections
+
+    // Calculate quality factor based on FPS and connection count
+    let quality_factor = if fps < 20 && connections.len() > 300 {
+        0.7 // Reduce quality when FPS is very low and many connections
+    } else if fps < 35 && connections.len() > 500 {
+        0.85 // Slightly reduce quality when FPS is moderate
     } else {
-        1
+        1.0 // Full quality otherwise
     };
 
     // Performance: Only do spatial culling if we have many connections
-    let use_culling = connections.len() > 100;
+    let use_culling = connections.len() > 400; // Increased threshold to reduce overhead
     let (min_x, min_y, max_x, max_y) = if use_culling {
         let screen_width = screen_width();
         let screen_height = screen_height();
@@ -257,12 +276,7 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
     let t = get_time() as f32;
     let pulse = (t * 2.0).sin() * 0.25 + 0.5; // 0.25..0.75
 
-    for (i, conn) in connections.iter().enumerate() {
-        // Performance: LOD
-        if i % step != 0 {
-            continue;
-        }
-
+    for conn in connections.iter() {
         if let (Some(h1), Some(h2)) = (hyphae.get(conn.hypha1), hyphae.get(conn.hypha2)) {
             if h1.alive && h2.alive {
                 let x1 = h1.x * CELL_SIZE;
@@ -285,27 +299,33 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
                 // Network Intelligence: Visualize connection strength
                 // Strong connections are brighter and thicker
                 let strength_factor = conn.strength;
-                let thickness = 1.0 + strength_factor * 2.0;
+                let base_thickness = 1.0 + strength_factor * 2.0;
+
+                // Apply quality factor to thickness and alpha instead of skipping
+                // This maintains visibility while improving performance
+                let thickness = base_thickness * quality_factor;
 
                 // Network Intelligence: Visualize signals (pulsing red/orange)
                 let signal_intensity = conn.signal.min(1.0);
-                let base_alpha = (0.4 + pulse * 0.4) * age_fade;
+                let base_alpha_raw = (0.4 + pulse * 0.4) * age_fade;
+                let base_alpha = base_alpha_raw * quality_factor; // Apply quality factor to alpha
 
                 if signal_intensity > 0.1 {
                     // Signal propagation: red/orange pulsing
                     let signal_pulse = (t * 4.0 + signal_intensity * 10.0).sin() * 0.5 + 0.5;
                     let signal_alpha = base_alpha * signal_intensity * signal_pulse;
+                    let signal_thickness = (thickness + signal_intensity * 1.0) * quality_factor;
                     draw_line(
                         x1,
                         y1,
                         x2,
                         y2,
-                        thickness + signal_intensity * 1.0,
+                        signal_thickness,
                         Color::new(1.0, 0.3 + signal_intensity * 0.4, 0.0, signal_alpha),
                     );
                 } else {
                     // Normal connection: green, colored by strength
-                    let base_alpha = base_alpha * (0.5 + strength_factor * 0.5);
+                    let conn_alpha = base_alpha * (0.5 + strength_factor * 0.5);
                     let green = 0.3 + strength_factor * 0.7;
                     draw_line(
                         x1,
@@ -313,7 +333,7 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
                         x2,
                         y2,
                         thickness,
-                        Color::new(0.0, green, 0.5, base_alpha),
+                        Color::new(0.0, green, 0.5, conn_alpha),
                     );
                 }
             }
@@ -372,9 +392,9 @@ pub fn draw_fruit_bodies(fruit_bodies: &[FruitBody], hyphae: &[crate::hypha::Hyp
 
         // Draw energy transfer lines from nearby hyphae
         // Transfer radius in grid units (matches simulation)
-        let transfer_radius_grid = 15.0;
+        let transfer_radius_grid = 20.0; // Updated to match simulation
         let transfer_radius_sq = transfer_radius_grid * transfer_radius_grid;
-        for h in hyphae.iter().filter(|h| h.alive && h.energy > 0.1) {
+        for h in hyphae.iter().filter(|h| h.alive && h.energy > 0.05) {
             let hx = h.x * CELL_SIZE;
             let hy = h.y * CELL_SIZE;
             // Check distance in grid units
@@ -435,6 +455,7 @@ pub fn draw_stats_and_help(
     avg_energy: f32,
     paused: bool,
     speed_multiplier: f32,
+    weather: Option<&crate::weather::Weather>,
 ) {
     let fps = get_fps();
     let stats_part1_text = format!(
@@ -444,49 +465,177 @@ pub fn draw_stats_and_help(
     draw_text(&stats_part1_text, 10.0, 20.0, 20.0, WHITE);
     let stats_part2_text = format!("Speed: {:.1}x | FPS: {:.0}", speed_multiplier, fps);
     draw_text(&stats_part2_text, 10.0, 40.0, 20.0, WHITE);
-    if paused {
-        draw_text("PAUSED - Press SPACE to resume", 10.0, 60.0, 20.0, YELLOW);
+
+    // Weather information
+    if let Some(w) = weather {
+        let temp_c = w.temperature_celsius_approx();
+        let temp_color = if temp_c < 10.0 {
+            Color::new(0.5, 0.7, 1.0, 1.0) // Cold: blue
+        } else if temp_c > 30.0 {
+            Color::new(1.0, 0.5, 0.3, 1.0) // Hot: red-orange
+        } else {
+            Color::new(0.5, 1.0, 0.5, 1.0) // Optimal: green
+        };
+
+        let rain_str = if w.rain > 0.5 {
+            "Heavy Rain"
+        } else if w.rain > 0.2 {
+            "Rain"
+        } else if w.rain > 0.0 {
+            "Light Rain"
+        } else {
+            "Clear"
+        };
+
+        draw_text(
+            &format!(
+                "Weather: {:.1}°C | Humidity: {:.0}% | {}",
+                temp_c,
+                w.humidity * 100.0,
+                rain_str
+            ),
+            10.0,
+            60.0,
+            18.0,
+            temp_color,
+        );
+
+        // Growth multiplier indicator
+        let growth_mult = w.growth_multiplier();
+        let growth_color = if growth_mult > 1.0 {
+            GREEN
+        } else if growth_mult > 0.7 {
+            YELLOW
+        } else {
+            RED
+        };
+        draw_text(
+            &format!("Growth: {:.1}x", growth_mult),
+            10.0,
+            80.0,
+            16.0,
+            growth_color,
+        );
     }
-    let controls_part1_text =
-        "Controls: SPACE=Pause | R=Reset | C=Clear | X=Connections | M=Minimap | H=Hyphae | I=Memory";
-    draw_text(
-        controls_part1_text,
-        10.0,
-        screen_height() - 100.0,
-        16.0,
-        Color::new(1.0, 1.0, 1.0, 0.7),
+
+    if paused {
+        draw_text("PAUSED - Press SPACE to resume", 10.0, 100.0, 20.0, YELLOW);
+    }
+
+    // Show hint to press ? for help (only when popup is not visible)
+    // This will be controlled by the help_popup_visible flag passed from main
+}
+
+/// Draw help popup window with controls
+pub fn draw_help_popup(camera_enabled: bool) {
+    let screen_width = screen_width();
+    let screen_height = screen_height();
+
+    // Popup dimensions
+    let popup_width = (screen_width * 0.7).min(700.0);
+    let popup_height = (screen_height * 0.8).min(600.0);
+    let popup_x = (screen_width - popup_width) / 2.0;
+    let popup_y = (screen_height - popup_height) / 2.0;
+
+    // Dark overlay background (semi-transparent)
+    draw_rectangle(
+        0.0,
+        0.0,
+        screen_width,
+        screen_height,
+        Color::new(0.0, 0.0, 0.0, 0.7),
     );
-    let controls_part2_text =
-        "S=Spawn | N=Sugar patch | T=Nitrogen patch | LMB=Sugar | RMB=Nitrogen";
-    draw_text(
-        controls_part2_text,
-        10.0,
-        screen_height() - 80.0,
-        16.0,
-        Color::new(1.0, 1.0, 1.0, 0.7),
+
+    // Popup background
+    draw_rectangle(
+        popup_x,
+        popup_y,
+        popup_width,
+        popup_height,
+        Color::new(0.1, 0.1, 0.15, 0.95),
     );
-    let controls_part3_text = "Speed Controls: <- = Slower | -> = Faster | 0 = Reset to 1x";
-    draw_text(
-        controls_part3_text,
-        10.0,
-        screen_height() - 60.0,
-        16.0,
-        Color::new(1.0, 1.0, 1.0, 0.7),
+
+    // Popup border
+    draw_rectangle_lines(
+        popup_x,
+        popup_y,
+        popup_width,
+        popup_height,
+        3.0,
+        Color::new(0.5, 0.5, 0.7, 1.0),
     );
-    let visualization_text = "Visualization: V=Enhanced | F=Flow | 1=Stress";
+
+    // Title
+    let title = "Controls & Help";
+    let title_font_size = 28.0;
+    let title_width = measure_text(title, None, title_font_size as u16, 1.0).width;
     draw_text(
-        visualization_text,
-        10.0,
-        screen_height() - 40.0,
-        16.0,
-        Color::new(1.0, 1.0, 1.0, 0.7),
+        title,
+        popup_x + (popup_width - title_width) / 2.0,
+        popup_y + 30.0,
+        title_font_size,
+        Color::new(1.0, 1.0, 1.0, 1.0),
     );
-    let network_intel_text = "Network Intelligence: Signals (red pulses) | Strong connections (bright/thick) | Memory (purple overlay)";
+
+    // Close hint
+    let close_hint = "Press F1 or Escape to close";
+    let close_hint_font_size = 16.0;
+    let close_hint_width = measure_text(close_hint, None, close_hint_font_size as u16, 1.0).width;
     draw_text(
-        network_intel_text,
-        10.0,
-        screen_height() - 20.0,
-        14.0,
-        Color::new(0.8, 0.8, 1.0, 0.6),
+        close_hint,
+        popup_x + (popup_width - close_hint_width) / 2.0,
+        popup_y + popup_height - 25.0,
+        close_hint_font_size,
+        Color::new(0.7, 0.7, 0.7, 1.0),
     );
+
+    // Controls text
+    let mut y_offset = popup_y + 70.0;
+    let line_spacing = 22.0;
+    let margin = 20.0;
+    let text_x = popup_x + margin;
+
+    for text in get_controls_text(camera_enabled) {
+        // Wrap long lines if needed
+        let max_width = popup_width - margin * 2.0;
+        let text_width = measure_text(text.text, None, text.font_size as u16, 1.0).width;
+
+        if text_width > max_width {
+            // Simple word wrapping (split by " | " separator)
+            let parts: Vec<&str> = text.text.split(" | ").collect();
+            let mut current_line = String::new();
+
+            for (i, part) in parts.iter().enumerate() {
+                let test_line = if current_line.is_empty() {
+                    part.to_string()
+                } else {
+                    format!("{} | {}", current_line, part)
+                };
+                let test_width = measure_text(&test_line, None, text.font_size as u16, 1.0).width;
+
+                if test_width > max_width && !current_line.is_empty() {
+                    // Draw current line and start new one
+                    draw_text(&current_line, text_x, y_offset, text.font_size, text.color);
+                    y_offset += line_spacing;
+                    current_line = part.to_string();
+                } else {
+                    current_line = test_line;
+                }
+
+                // If this is the last part, draw it
+                if i == parts.len() - 1 && !current_line.is_empty() {
+                    draw_text(&current_line, text_x, y_offset, text.font_size, text.color);
+                    y_offset += line_spacing;
+                }
+            }
+        } else {
+            draw_text(text.text, text_x, y_offset, text.font_size, text.color);
+            y_offset += line_spacing;
+        }
+
+        // Add extra spacing for section headers
+        if text.font_size == 14.0 {
+            y_offset += 5.0;
+        }
+    }
 }
