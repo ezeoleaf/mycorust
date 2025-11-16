@@ -1,29 +1,79 @@
 use ::rand as external_rand;
+use clap::Parser;
 use external_rand::thread_rng;
-use macroquad::prelude::*;
 
-mod camera;
 mod config;
-mod controls;
 mod hypha;
 mod nutrients;
 mod simulation;
 mod spore;
 mod types;
-mod visualization;
 mod weather;
 
 use config::*;
-use controls::handle_controls;
 use simulation::Simulation;
-use visualization::{
-    draw_connections, draw_fruit_bodies, draw_help_popup, draw_hyphae_enhanced,
-    draw_memory_overlay, draw_minimap, draw_nutrients, draw_obstacles, draw_segments,
-    draw_stats_and_help,
-};
 
+#[cfg(feature = "ui")]
+mod camera;
+#[cfg(feature = "ui")]
+mod controls;
+#[cfg(feature = "ui")]
+mod visualization;
+
+mod api;
+
+#[cfg(feature = "ui")]
+use macroquad::prelude::*;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Run in headless mode (HTTP API server)
+    #[arg(long)]
+    headless: bool,
+
+    /// Port for headless API server
+    #[arg(long, default_value_t = 8080)]
+    port: u16,
+}
+
+#[cfg(not(feature = "ui"))]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Headless mode only
+    let args = Args::parse();
+    headless_main(args.port).await
+}
+
+#[cfg(feature = "ui")]
 #[macroquad::main(window_conf)]
 async fn main() {
+    let args = Args::parse();
+
+    if args.headless {
+        // Run headless mode even with UI feature enabled
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            if let Err(e) = headless_main(args.port).await {
+                eprintln!("Error running headless mode: {}", e);
+                std::process::exit(1);
+            }
+        });
+    } else {
+        // Run UI mode
+        ui_main().await;
+    }
+}
+
+#[cfg(feature = "ui")]
+async fn ui_main() {
+    use controls::handle_controls;
+    use visualization::{
+        draw_connections, draw_fruit_bodies, draw_help_popup, draw_hyphae_enhanced,
+        draw_memory_overlay, draw_minimap, draw_nutrients, draw_obstacles, draw_segments,
+        draw_stats_and_help,
+    };
+
     let mut rng = thread_rng();
     // Initialize simulation
     let mut sim = Simulation::new(&mut rng);
@@ -161,6 +211,7 @@ async fn main() {
     }
 }
 
+#[cfg(feature = "ui")]
 fn window_conf() -> Conf {
     Conf {
         window_title: "Mycelium Growth Simulation".to_owned(),
@@ -170,6 +221,7 @@ fn window_conf() -> Conf {
     }
 }
 
+#[cfg(feature = "ui")]
 /// Capture a screenshot of the current screen
 fn capture_screenshot(filename: &str) -> Result<(), Box<dyn std::error::Error>> {
     // Get the screen data from macroquad
@@ -205,6 +257,28 @@ fn capture_screenshot(filename: &str) -> Result<(), Box<dyn std::error::Error>> 
 
     // Save the image as PNG
     img.save(filename)?;
+
+    Ok(())
+}
+
+/// Headless mode - runs HTTP API server
+async fn headless_main(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+    use api::run_server;
+    use api::ApiState;
+    use simulation::set_headless_mode;
+
+    // Set headless mode flag to avoid calling macroquad functions
+    set_headless_mode(true);
+
+    // Initialize simulation
+    let mut rng = thread_rng();
+    let sim = Simulation::new(&mut rng);
+
+    // Create API state
+    let api_state = ApiState::new(sim);
+
+    // Run the server
+    run_server(api_state, port).await?;
 
     Ok(())
 }

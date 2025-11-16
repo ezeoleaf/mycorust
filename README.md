@@ -1,6 +1,10 @@
 ## MycoRust — Mycelium Growth Simulation
 
-A mycelium/hyphae growth simulation in Rust using Macroquad. Hyphae follow nutrient gradients, branch, form connections (anastomosis), avoid collisions, and leave fading trails. Features advanced network intelligence, weather simulation, adaptive growth, and memory systems.
+A mycelium/hyphae growth simulation in Rust. Hyphae follow nutrient gradients, branch, form connections (anastomosis), avoid collisions, and leave fading trails. Features advanced network intelligence, weather simulation, adaptive growth, and memory systems.
+
+**Two modes available:**
+- **UI Mode**: Interactive visualization using Macroquad (default)
+- **Headless Mode**: HTTP API server for integration with custom visualization tools
 
 ### Prerequisites
 
@@ -8,11 +12,28 @@ A mycelium/hyphae growth simulation in Rust using Macroquad. Hyphae follow nutri
 
 ### Run
 
+#### UI Mode (Default)
 ```bash
 cargo run
 # or for better performance
 cargo run --release
 ```
+
+#### Headless Mode (HTTP API Server)
+Run the simulation without a UI, exposing an HTTP API to access simulation state:
+
+```bash
+# Headless mode (no UI dependencies)
+cargo run --no-default-features -- --headless --port 8080
+
+# Headless mode with UI features compiled (but not used)
+cargo run --features ui -- --headless --port 8080
+
+# Default port is 8080 if not specified
+cargo run --no-default-features -- --headless
+```
+
+The simulation runs automatically at ~60 FPS in the background. You can access the current state via HTTP endpoints (see [Headless Mode & API](#headless-mode--api) section below).
 
 ### Run Tests
 
@@ -75,6 +96,13 @@ The simulation can be tested without requiring a graphics context, making it CI/
 - **Screenshot**: Capture high-resolution images of the simulation (P key).
 - **Spatial Culling**: Only visible objects are rendered for better performance.
 
+#### Headless Mode & API
+- **HTTP API Server**: Run the simulation without a UI, exposing REST endpoints
+- **Automatic Simulation**: Simulation runs continuously at ~60 FPS in the background
+- **JSON State Access**: Get full simulation state as JSON for custom visualization
+- **Control via API**: Step, pause, reset, and query simulation state remotely
+- **No Graphics Dependencies**: Headless mode can run without macroquad/OpenGL
+
 #### Testing
 - Comprehensive test suite with 15+ validation tests
 - Tests run without macroquad (no graphics context required)
@@ -115,7 +143,255 @@ The simulation can be tested without requiring a graphics context, making it CI/
 - **F**: Toggle flow visualization (green pulses)
 - **1**: Toggle stress visualization (red/orange for low energy)
 
-Controls help is shown at the bottom of the screen.
+Controls help is shown at the bottom of the screen. Press **F1** to toggle the help popup.
+
+### Headless Mode & API
+
+When running in headless mode, the simulation exposes an HTTP API server that allows you to:
+- Query the current simulation state
+- Control the simulation (step, pause, reset)
+- Integrate with custom visualization tools
+- Run the simulation on servers without graphics capabilities
+
+#### Starting the Headless Server
+
+```bash
+# Run headless mode (default port: 8080)
+cargo run --no-default-features -- --headless
+
+# Specify custom port
+cargo run --no-default-features -- --headless --port 3000
+```
+
+The server will start and print available endpoints. The simulation runs automatically in the background at ~60 FPS.
+
+#### API Endpoints
+
+All endpoints return JSON. CORS is enabled for cross-origin requests.
+
+##### `GET /state`
+Get the complete current simulation state.
+
+**Response**: Full `SimulationStateResponse` JSON containing:
+- `hyphae`: Array of all hyphae with positions, energy, age, strength, etc.
+- `spores`: Array of all spores
+- `connections`: Network connections between hyphae
+- `segments`: Trail segments (for visualization)
+- `fruit_bodies`: Fruiting bodies
+- `nutrients`: Sugar and nitrogen grids (2D arrays)
+- `nutrient_memory`: Memory grid (2D array)
+- `obstacles`: Obstacle grid (2D boolean array)
+- `weather`: Current weather conditions (temperature, humidity, rain, multipliers)
+- `stats`: Statistics (hyphae count, spores count, connections count, fruit count, avg energy, total energy, frame index)
+
+**Example**:
+```bash
+curl http://localhost:8080/state | jq '.stats'
+```
+
+##### `GET /stats`
+Get simulation statistics only (lighter than `/state`).
+
+**Response**: `StatsData` JSON with counts and energy information.
+
+**Example**:
+```bash
+curl http://localhost:8080/stats
+```
+
+##### `POST /step?steps=N`
+Manually step the simulation forward N times (default: 1).
+
+**Query Parameters**:
+- `steps` (optional): Number of steps to advance (default: 1)
+
+**Response**: Full `SimulationStateResponse` after stepping.
+
+**Example**:
+```bash
+# Step once
+curl -X POST http://localhost:8080/step
+
+# Step 10 times
+curl -X POST "http://localhost:8080/step?steps=10"
+```
+
+##### `POST /reset`
+Reset the simulation to its initial state.
+
+**Response**: Full `SimulationStateResponse` after reset.
+
+**Example**:
+```bash
+curl -X POST http://localhost:8080/reset
+```
+
+##### `POST /pause`
+Toggle the pause state of the simulation.
+
+**Response**: JSON with current pause state: `{"paused": true}` or `{"paused": false}`
+
+**Example**:
+```bash
+curl -X POST http://localhost:8080/pause
+```
+
+##### `GET /config`
+Get the current simulation configuration.
+
+**Response**: `SimulationConfig` JSON with all parameters.
+
+**Example**:
+```bash
+curl http://localhost:8080/config | jq '.grid_size'
+```
+
+#### Example Usage
+
+```bash
+# Start the headless server
+cargo run --no-default-features -- --headless
+
+# In another terminal, query the state
+curl http://localhost:8080/state | jq '.stats.hyphae_count'
+
+# Get statistics
+curl http://localhost:8080/stats
+
+# Pause the simulation
+curl -X POST http://localhost:8080/pause
+
+# Step manually (even when paused, manual steps work)
+curl -X POST "http://localhost:8080/step?steps=5"
+
+# Resume (unpause)
+curl -X POST http://localhost:8080/pause
+
+# Reset the simulation
+curl -X POST http://localhost:8080/reset
+```
+
+#### Integration Example (Go)
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "io"
+    "net/http"
+)
+
+type Hypha struct {
+    X      float32 `json:"x"`
+    Y      float32 `json:"y"`
+    Alive  bool    `json:"alive"`
+    Energy float32 `json:"energy"`
+}
+
+type Stats struct {
+    HyphaeCount   int   `json:"hyphae_count"`
+    FrameIndex    int64 `json:"frame_index"`
+}
+
+type StateResponse struct {
+    Hyphae []Hypha `json:"hyphae"`
+    Stats  Stats   `json:"stats"`
+}
+
+const apiBaseURL = "http://localhost:8080"
+
+func main() {
+    // Get current state
+    resp, err := http.Get(apiBaseURL + "/state")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        panic(err)
+    }
+
+    var state StateResponse
+    if err := json.Unmarshal(body, &state); err != nil {
+        panic(err)
+    }
+
+    // Access hyphae data
+    for _, hypha := range state.Hyphae {
+        if hypha.Alive {
+            fmt.Printf("Hypha at (%.2f, %.2f) with energy %.3f\n",
+                hypha.X, hypha.Y, hypha.Energy)
+        }
+    }
+
+    // Get statistics
+    resp, err = http.Get(apiBaseURL + "/stats")
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    body, err = io.ReadAll(resp.Body)
+    if err != nil {
+        panic(err)
+    }
+
+    var stats Stats
+    if err := json.Unmarshal(body, &stats); err != nil {
+        panic(err)
+    }
+
+    fmt.Printf("Active hyphae: %d\n", stats.HyphaeCount)
+    fmt.Printf("Frame: %d\n", stats.FrameIndex)
+
+    // Step simulation
+    apiURL := apiBaseURL + "/step?steps=10"
+    req, err := http.NewRequest("POST", apiURL, nil)
+    if err != nil {
+        panic(err)
+    }
+
+    client := &http.Client{}
+    resp, err = client.Do(req)
+    if err != nil {
+        panic(err)
+    }
+    defer resp.Body.Close()
+
+    fmt.Println("Stepped simulation 10 times")
+}
+```
+
+#### Integration Example (JavaScript/TypeScript)
+
+```typescript
+// Fetch simulation state
+const response = await fetch('http://localhost:8080/state');
+const state = await response.json();
+
+// Access data
+console.log(`Hyphae count: ${state.stats.hyphae_count}`);
+console.log(`Frame: ${state.stats.frame_index}`);
+
+// Draw hyphae (example with Canvas API)
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+state.hyphae.forEach(hypha => {
+  if (hypha.alive) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${hypha.energy})`;
+    ctx.fillRect(hypha.x * 4, hypha.y * 4, 2, 2);
+  }
+});
+
+// Step simulation
+await fetch('http://localhost:8080/step?steps=1', { method: 'POST' });
+```
 
 ### Screenshots
 
@@ -274,12 +550,13 @@ The simulation is organized into several modules:
 - **`hypha.rs`** — Hypha struct and behavior
 - **`spore.rs`** — Spore struct and behavior
 - **`nutrients.rs`** — Nutrient grid and gradient calculations
-- **`visualization.rs`** — All drawing functions with enhanced visualization options
-- **`controls.rs`** — Input handling and control text
+- **`visualization.rs`** — All drawing functions with enhanced visualization options (UI mode only)
+- **`controls.rs`** — Input handling and control text (UI mode only)
 - **`types.rs`** — Shared types (Connection, Segment, FruitBody, Vec2)
 - **`weather.rs`** — Weather system with temperature, humidity, and rain
-- **`camera.rs`** — Camera system for pan/zoom functionality
-- **`main.rs`** — Main entry point and game loop
+- **`camera.rs`** — Camera system for pan/zoom functionality (UI mode only)
+- **`api.rs`** — HTTP API server for headless mode with REST endpoints
+- **`main.rs`** — Main entry point, supports both UI and headless modes
 
 The `Simulation` struct contains:
 - `state: SimulationState` — All mutable simulation data (nutrients, hyphae, spores, connections, memory, weather, etc.)
@@ -289,13 +566,25 @@ The `Simulation` struct contains:
 
 ### Troubleshooting
 
+#### UI Mode
 - If the window is too large, lower `grid_size` or `cell_size` in the config.
 - If performance is low, use `cargo run --release` and/or reduce `grid_size`. You can also toggle connections (X), minimap (M), enhanced visualization (V), or lower `max_segment_age`.
 - If trails overwhelm the scene, reduce `max_segment_age` or increase `segment_age_increment` in the config.
 - If hyphae grow too fast, reduce `branch_prob` or enable growth limits (`max_hyphae`).
 - If memory overlay is not visible, ensure `memory_enabled` is true and wait for hyphae to discover nutrients (memory accumulates over time).
 - If camera is not working, ensure `camera_enabled` is true in the config.
+
+#### Headless Mode
+- If the API server doesn't start, check that the port isn't already in use: `lsof -i :8080`
+- If you get connection refused, ensure the server is running and check the port number
+- The simulation runs automatically in the background - you don't need to call `/step` unless you want manual control
+- Use `POST /pause` to pause the automatic simulation loop
+- The simulation respects the pause state, so paused simulations won't advance automatically
+
+#### General
 - If tests fail, check that all dependencies are installed: `cargo test --no-run` to verify compilation.
+- For headless mode without UI dependencies: `cargo run --no-default-features -- --headless`
+- For headless mode with UI features available: `cargo run --features ui -- --headless`
 
 ### License
 

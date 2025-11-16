@@ -1,8 +1,10 @@
 use ::rand as external_rand;
 use external_rand::Rng;
 #[cfg(not(test))]
+#[cfg(feature = "ui")]
 use macroquad::prelude::*;
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::config::{SimulationConfig, *};
 use crate::hypha::Hypha;
@@ -11,15 +13,41 @@ use crate::spore::Spore;
 use crate::types::{Connection, FruitBody, Segment};
 use crate::weather::Weather;
 
+// Runtime flag to indicate if we're running in headless mode
+// This is set when headless mode starts and checked to avoid calling macroquad
+static HEADLESS_MODE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_headless_mode(headless: bool) {
+    HEADLESS_MODE.store(headless, Ordering::Relaxed);
+}
+
 // Helper function to get FPS - use default for tests, actual FPS for runtime
+// In headless mode or when macroquad isn't initialized, returns a safe default
 #[cfg(test)]
 fn get_fps() -> f32 {
     60.0 // Default FPS for tests
 }
 
 #[cfg(not(test))]
+#[cfg(feature = "ui")]
 fn get_fps() -> f32 {
-    macroquad::prelude::get_fps() as f32
+    // If we're in headless mode, don't call macroquad
+    if HEADLESS_MODE.load(Ordering::Relaxed) {
+        return 60.0;
+    }
+
+    // Try to get FPS from macroquad, but fall back to default if not available
+    // This handles the case where UI features are compiled in but we're running headless
+    // Macroquad has thread-local state that panics if accessed from wrong thread/context
+    use std::panic;
+    panic::catch_unwind(|| macroquad::prelude::get_fps() as f32).unwrap_or(60.0)
+    // Default FPS if macroquad isn't available or panics
+}
+
+#[cfg(not(test))]
+#[cfg(not(feature = "ui"))]
+fn get_fps() -> f32 {
+    60.0 // Default FPS for headless mode
 }
 
 #[inline]
@@ -98,9 +126,11 @@ pub struct Simulation {
     pub speed_accumulator: f32,
     // Performance: Cache for visualization (computed once per frame)
     pub hypha_flow_cache: Vec<f32>, // Pre-computed flow values per hypha
-    // Camera for pan/zoom
+    // Camera for pan/zoom (only in UI mode)
+    #[cfg(feature = "ui")]
     pub camera: crate::camera::Camera,
-    // Screenshot flag
+    // Screenshot flag (only in UI mode)
+    #[cfg(feature = "ui")]
     pub take_screenshot: bool,
 }
 
@@ -170,8 +200,7 @@ impl Simulation {
             });
         }
 
-        // In tests, create a Camera instance directly
-        // The Camera struct will use test-compatible Vec2 from types.rs
+        #[cfg(feature = "ui")]
         let camera = crate::camera::Camera::new(config.camera_enabled);
 
         Self {
@@ -188,7 +217,9 @@ impl Simulation {
             speed_multiplier: 1.0,
             speed_accumulator: 0.0,
             hypha_flow_cache: Vec::new(),
+            #[cfg(feature = "ui")]
             camera,
+            #[cfg(feature = "ui")]
             take_screenshot: false,
             help_popup_visible: false,
         }
@@ -253,7 +284,9 @@ impl Simulation {
             speed_accumulator: 0.0,
             help_popup_visible: false,
             hypha_flow_cache: Vec::new(),
+            #[cfg(feature = "ui")]
             camera: crate::camera::Camera::new(camera_enabled),
+            #[cfg(feature = "ui")]
             take_screenshot: false,
         }
     }
@@ -383,6 +416,7 @@ impl Simulation {
         self.show_stress = !self.show_stress;
     }
 
+    #[cfg(feature = "ui")]
     pub fn toggle_camera(&mut self) {
         self.camera.toggle_enabled();
     }
@@ -1108,17 +1142,22 @@ impl Simulation {
                     }
                 }
 
+                // Create segment for visualization (trails)
+                // Use types::Vec2 for headless/test mode, macroquad::Vec2 for UI mode
+                #[cfg(feature = "ui")]
                 #[cfg(not(test))]
-                let from = macroquad::prelude::vec2(
-                    h.prev_x * self.config.cell_size,
-                    h.prev_y * self.config.cell_size,
-                );
-                #[cfg(not(test))]
-                let to = macroquad::prelude::vec2(
-                    h.x * self.config.cell_size,
-                    h.y * self.config.cell_size,
-                );
-                #[cfg(test)]
+                {
+                    let from = macroquad::prelude::vec2(
+                        h.prev_x * self.config.cell_size,
+                        h.prev_y * self.config.cell_size,
+                    );
+                    let to = macroquad::prelude::vec2(
+                        h.x * self.config.cell_size,
+                        h.y * self.config.cell_size,
+                    );
+                    self.state.segments.push(Segment { from, to, age: 0.0 });
+                }
+                #[cfg(any(test, not(feature = "ui")))]
                 {
                     use crate::types::Vec2;
                     let from = Vec2::new(
@@ -1126,10 +1165,6 @@ impl Simulation {
                         h.prev_y * self.config.cell_size,
                     );
                     let to = Vec2::new(h.x * self.config.cell_size, h.y * self.config.cell_size);
-                    self.state.segments.push(Segment { from, to, age: 0.0 });
-                }
-                #[cfg(not(test))]
-                {
                     self.state.segments.push(Segment { from, to, age: 0.0 });
                 }
             }
@@ -1666,7 +1701,7 @@ impl Simulation {
                 });
                 spore.alive = false;
                 // Particle burst at germination (visualization only - not used in tests)
-                #[cfg(not(test))]
+                #[cfg(all(not(test), feature = "ui"))]
                 {
                     use macroquad::prelude::*;
                     for k in 0..8 {

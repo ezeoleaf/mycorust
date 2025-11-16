@@ -1,7 +1,8 @@
 // Global configuration and constants
+use serde::{Deserialize, Serialize};
 
 // Configuration struct for simulation parameters
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimulationConfig {
     // Grid/display
     pub grid_size: usize,

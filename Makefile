@@ -10,6 +10,12 @@ build:
 run-release:
 	cargo run --release
 
+run-headless:
+	cargo run --no-default-features -- --headless
+
+run-headless-release:
+	cargo run --release --no-default-features -- --headless
+
 clean-release:
 	cargo clean --release
 
