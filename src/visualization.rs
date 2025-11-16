@@ -1,22 +1,24 @@
 use macroquad::prelude::*;
 
-use crate::config::*;
+use crate::config::SimulationConfig;
 use crate::controls::get_controls_text;
 use crate::hypha::Hypha;
 use crate::nutrients::{nutrient_color, NutrientGrid};
 use crate::types::{Connection, FruitBody, Segment};
 
-pub fn draw_nutrients(nutrients: &NutrientGrid) {
-    for x in 0..GRID_SIZE {
-        for y in 0..GRID_SIZE {
+pub fn draw_nutrients(nutrients: &NutrientGrid, config: &SimulationConfig) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+    for x in 0..grid_size {
+        for y in 0..grid_size {
             let sugar = nutrients.sugar[x][y];
             let nitrogen = nutrients.nitrogen[x][y];
             let color = nutrient_color(sugar, nitrogen);
             draw_rectangle(
-                x as f32 * CELL_SIZE,
-                y as f32 * CELL_SIZE,
-                CELL_SIZE,
-                CELL_SIZE,
+                x as f32 * cell_size,
+                y as f32 * cell_size,
+                cell_size,
+                cell_size,
                 color,
             );
         }
@@ -24,12 +26,14 @@ pub fn draw_nutrients(nutrients: &NutrientGrid) {
 }
 
 // Network Intelligence: Draw memory overlay (subtle purple/blue tint)
-pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool) {
+pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool, config: &SimulationConfig) {
     if !memory_visible {
         return;
     }
-    for x in 0..GRID_SIZE {
-        for y in 0..GRID_SIZE {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+    for x in 0..grid_size {
+        for y in 0..grid_size {
             let mem_val = memory[x][y];
             // Lower threshold to show memory values that accumulate over time
             // Memory values are small (0.003 max per update) but accumulate, so threshold of 0.001 is appropriate
@@ -40,10 +44,10 @@ pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool) {
                 let alpha = (mem_val * 0.5).min(0.6); // More visible overlay, capped at 0.6 for readability
                 let purple = Color::new(0.6, 0.2, 0.9, alpha); // Brighter purple for better visibility
                 draw_rectangle(
-                    x as f32 * CELL_SIZE,
-                    y as f32 * CELL_SIZE,
-                    CELL_SIZE,
-                    CELL_SIZE,
+                    x as f32 * cell_size,
+                    y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
                     purple,
                 );
             }
@@ -51,16 +55,18 @@ pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool) {
     }
 }
 
-pub fn draw_obstacles(obstacles: &[Vec<bool>]) {
+pub fn draw_obstacles(obstacles: &[Vec<bool>], config: &SimulationConfig) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
     #[allow(clippy::needless_range_loop)]
-    for x in 0..GRID_SIZE {
-        for y in 0..GRID_SIZE {
+    for x in 0..grid_size {
+        for y in 0..grid_size {
             if obstacles[x][y] {
                 draw_rectangle(
-                    x as f32 * CELL_SIZE,
-                    y as f32 * CELL_SIZE,
-                    CELL_SIZE,
-                    CELL_SIZE,
+                    x as f32 * cell_size,
+                    y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
                     Color::new(0.05, 0.05, 0.05, 1.0),
                 );
             }
@@ -158,7 +164,9 @@ pub fn draw_hyphae_enhanced(
     show_flow: bool,
     show_stress: bool,
     hypha_flow_cache: &[f32], // Pre-computed flow values per hypha index
+    config: &SimulationConfig,
 ) {
+    let cell_size = config.cell_size;
     // Performance: Cache screen dimensions (only call once)
     let screen_width = screen_width();
     let screen_height = screen_height();
@@ -188,8 +196,8 @@ pub fn draw_hyphae_enhanced(
             continue;
         }
 
-        let px = h.x * CELL_SIZE;
-        let py = h.y * CELL_SIZE;
+        let px = h.x * cell_size;
+        let py = h.y * cell_size;
 
         // Performance: Spatial culling - only draw visible hyphae
         if px < min_x || px > max_x || py < min_y || py > max_y {
@@ -239,7 +247,13 @@ pub fn draw_hyphae_enhanced(
     }
 }
 
-pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connections_visible: bool) {
+pub fn draw_connections(
+    connections: &[Connection],
+    hyphae: &[Hypha],
+    connections_visible: bool,
+    config: &SimulationConfig,
+) {
+    let cell_size = config.cell_size;
     if !connections_visible || connections.is_empty() {
         return;
     }
@@ -279,10 +293,10 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
     for conn in connections.iter() {
         if let (Some(h1), Some(h2)) = (hyphae.get(conn.hypha1), hyphae.get(conn.hypha2)) {
             if h1.alive && h2.alive {
-                let x1 = h1.x * CELL_SIZE;
-                let y1 = h1.y * CELL_SIZE;
-                let x2 = h2.x * CELL_SIZE;
-                let y2 = h2.y * CELL_SIZE;
+                let x1 = h1.x * cell_size;
+                let y1 = h1.y * cell_size;
+                let x2 = h2.x * cell_size;
+                let y2 = h2.y * cell_size;
 
                 // Performance: Spatial culling (only if enabled)
                 if use_culling {
@@ -341,14 +355,20 @@ pub fn draw_connections(connections: &[Connection], hyphae: &[Hypha], connection
     }
 }
 
-pub fn draw_minimap(nutrients: &NutrientGrid, hyphae: &[Hypha], minimap_visible: bool) {
+pub fn draw_minimap(
+    nutrients: &NutrientGrid,
+    hyphae: &[Hypha],
+    minimap_visible: bool,
+    config: &SimulationConfig,
+) {
     if !minimap_visible {
         return;
     }
+    let grid_size = config.grid_size;
     // Minimap size
     let map_scale = 0.25f32;
-    let w = GRID_SIZE as f32 * map_scale;
-    let h = GRID_SIZE as f32 * map_scale;
+    let w = grid_size as f32 * map_scale;
+    let h = grid_size as f32 * map_scale;
     let margin = 8.0f32;
     let x0 = screen_width() - w - margin;
     let y0 = margin;
@@ -364,8 +384,8 @@ pub fn draw_minimap(nutrients: &NutrientGrid, hyphae: &[Hypha], minimap_visible:
 
     // Nutrients heatmap (downsampled)
     let step = 2usize;
-    for x in (0..GRID_SIZE).step_by(step) {
-        for y in (0..GRID_SIZE).step_by(step) {
+    for x in (0..grid_size).step_by(step) {
+        for y in (0..grid_size).step_by(step) {
             let sugar = nutrients.sugar[x][y];
             let nitrogen = nutrients.nitrogen[x][y];
             let c = nutrient_color(sugar, nitrogen);
@@ -383,20 +403,25 @@ pub fn draw_minimap(nutrients: &NutrientGrid, hyphae: &[Hypha], minimap_visible:
     }
 }
 
-pub fn draw_fruit_bodies(fruit_bodies: &[FruitBody], hyphae: &[crate::hypha::Hypha]) {
+pub fn draw_fruit_bodies(
+    fruit_bodies: &[FruitBody],
+    hyphae: &[crate::hypha::Hypha],
+    config: &SimulationConfig,
+) {
+    let cell_size = config.cell_size;
     for f in fruit_bodies {
         let stem_h = 10.0;
         let stem_w = 3.0;
-        let px = f.x * CELL_SIZE;
-        let py = f.y * CELL_SIZE;
+        let px = f.x * cell_size;
+        let py = f.y * cell_size;
 
         // Draw energy transfer lines from nearby hyphae
         // Transfer radius in grid units (matches simulation)
         let transfer_radius_grid = 20.0; // Updated to match simulation
         let transfer_radius_sq = transfer_radius_grid * transfer_radius_grid;
         for h in hyphae.iter().filter(|h| h.alive && h.energy > 0.05) {
-            let hx = h.x * CELL_SIZE;
-            let hy = h.y * CELL_SIZE;
+            let hx = h.x * cell_size;
+            let hy = h.y * cell_size;
             // Check distance in grid units
             let dx_grid = f.x - h.x;
             let dy_grid = f.y - h.y;

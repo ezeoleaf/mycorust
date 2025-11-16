@@ -1,4 +1,3 @@
-use crate::config::GRID_SIZE;
 #[cfg(feature = "ui")]
 use macroquad::prelude::*;
 
@@ -10,11 +9,10 @@ pub struct NutrientGrid {
 }
 
 impl NutrientGrid {
-    pub fn new() -> Self {
-        let size = GRID_SIZE;
+    pub fn new(grid_size: usize) -> Self {
         Self {
-            sugar: vec![vec![0.0f32; size]; size],
-            nitrogen: vec![vec![0.0f32; size]; size],
+            sugar: vec![vec![0.0f32; grid_size]; grid_size],
+            nitrogen: vec![vec![0.0f32; grid_size]; grid_size],
         }
     }
 
@@ -43,10 +41,10 @@ pub fn nutrient_color(sugar: f32, nitrogen: f32) -> Color {
     Color::new(r, g, b, 1.0)
 }
 
-pub fn nutrient_gradient(grid: &NutrientGrid, x: f32, y: f32) -> (f32, f32) {
+pub fn nutrient_gradient(grid: &NutrientGrid, x: f32, y: f32, grid_size: usize) -> (f32, f32) {
     let xi = x as usize;
     let yi = y as usize;
-    if xi < 1 || yi < 1 || xi >= GRID_SIZE - 1 || yi >= GRID_SIZE - 1 {
+    if xi < 1 || yi < 1 || xi >= grid_size - 1 || yi >= grid_size - 1 {
         return (0.0, 0.0);
     }
     // Sobel-like gradient for smoother chemotaxis

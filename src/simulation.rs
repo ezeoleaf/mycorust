@@ -6,7 +6,7 @@ use macroquad::prelude::*;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::config::{SimulationConfig, *};
+use crate::config::SimulationConfig;
 use crate::hypha::Hypha;
 use crate::nutrients::{memory_gradient, nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
@@ -79,19 +79,18 @@ pub struct SimulationState {
 }
 
 impl SimulationState {
-    pub fn new() -> Self {
+    pub fn new(config: &SimulationConfig) -> Self {
         // Pre-allocate spatial grid
-        let cell_size: f32 = 4.0;
-        let grid_size = GRID_SIZE;
+        let cell_size = config.cell_size;
+        let grid_size = config.grid_size;
         let nx = ((grid_size as f32) / cell_size).ceil() as usize;
         let ny = ((grid_size as f32) / cell_size).ceil() as usize;
         let spatial_grid = vec![vec![Vec::new(); ny]; nx];
-
         Self {
-            nutrients: NutrientGrid::new(),
-            nutrients_back: NutrientGrid::new(),
-            nutrient_memory: vec![vec![0.0f32; GRID_SIZE]; GRID_SIZE],
-            obstacles: vec![vec![false; GRID_SIZE]; GRID_SIZE],
+            nutrients: NutrientGrid::new(grid_size),
+            nutrients_back: NutrientGrid::new(grid_size),
+            nutrient_memory: vec![vec![0.0f32; grid_size]; grid_size],
+            obstacles: vec![vec![false; grid_size]; grid_size],
             hyphae: Vec::new(),
             spores: Vec::new(),
             segments: Vec::new(),
@@ -165,8 +164,9 @@ impl Simulation {
         config: SimulationConfig,
         _init_camera: bool,
     ) -> Self {
-        let mut state = SimulationState::new();
         let grid_size = config.grid_size;
+        let camera_enabled_for_camera = config.camera_enabled;
+        let mut state = SimulationState::new(&config);
         let center = grid_size as f32 / 2.0;
 
         // Initialize nutrients with realistic organic distribution
@@ -201,7 +201,7 @@ impl Simulation {
         }
 
         #[cfg(feature = "ui")]
-        let camera = crate::camera::Camera::new(config.camera_enabled);
+        let camera = crate::camera::Camera::new(camera_enabled_for_camera, &config);
 
         Self {
             state,
@@ -231,7 +231,7 @@ impl Simulation {
         config: SimulationConfig,
         _init_camera: bool,
     ) -> Self {
-        let mut state = SimulationState::new();
+        let mut state = SimulationState::new(&config);
         let grid_size = config.grid_size;
         let center = grid_size as f32 / 2.0;
 
@@ -269,6 +269,9 @@ impl Simulation {
         // Read camera_enabled before moving config
         let camera_enabled = config.camera_enabled;
 
+        // Clone config for camera (since we need to move original into Self)
+        let config_for_camera = config.clone();
+
         Self {
             state,
             config,
@@ -285,7 +288,7 @@ impl Simulation {
             help_popup_visible: false,
             hypha_flow_cache: Vec::new(),
             #[cfg(feature = "ui")]
-            camera: crate::camera::Camera::new(camera_enabled),
+            camera: crate::camera::Camera::new(camera_enabled, &config_for_camera),
             #[cfg(feature = "ui")]
             take_screenshot: false,
         }
@@ -781,7 +784,8 @@ impl Simulation {
                 h.prev_x = h.x;
                 h.prev_y = h.y;
 
-                let (mut gx, mut gy) = nutrient_gradient(&self.state.nutrients, h.x, h.y);
+                let (mut gx, mut gy) =
+                    nutrient_gradient(&self.state.nutrients, h.x, h.y, self.config.grid_size);
 
                 // Network Intelligence: Blend memory gradient into growth direction
                 if self.config.memory_enabled && self.config.memory_influence > 0.0 {

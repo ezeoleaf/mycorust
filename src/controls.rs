@@ -65,7 +65,7 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         // Camera controls
         if is_key_pressed(KeyCode::Home) {
             // Reset camera to default position and zoom
-            sim.camera.reset();
+            sim.camera.reset(&sim.config);
         }
         // Toggle camera enabled/disabled (C key, but not when Shift is held for Clear)
         if is_key_pressed(KeyCode::C)
@@ -105,11 +105,13 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
     }
 
     // Helper function to convert screen mouse position to world coordinates
-    // Extract camera state to avoid borrowing conflicts
-    let camera_enabled = sim.camera.enabled;
+    // Extract camera state and config to avoid borrowing conflicts
+    let camera_enabled = sim.config.camera_enabled;
     let camera_x = sim.camera.x;
     let camera_y = sim.camera.y;
     let camera_zoom = sim.camera.zoom;
+    let grid_size = sim.config.grid_size;
+    let cell_size = sim.config.cell_size;
     let screen_width = screen_width();
     let screen_height = screen_height();
 
@@ -119,8 +121,7 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
             // When camera is enabled, we need to account for zoom and position
             // Simplified: approximate conversion (actual conversion would use camera matrix)
             // At zoom 1.0, viewport shows grid_width units, so 1 screen pixel ≈ grid_width/screen_width world units
-            use crate::config::{CELL_SIZE, GRID_SIZE};
-            let grid_width = GRID_SIZE as f32 * CELL_SIZE;
+            let grid_width = (grid_size as f32) * cell_size;
             let viewport_width = grid_width / camera_zoom;
 
             // Convert screen coordinates to world coordinates
@@ -138,16 +139,16 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         // Spawn new hypha at mouse position (in world coordinates)
         let (mx, my) = mouse_position();
         let (wx, wy) = mouse_to_world(mx, my);
-        let gx = (wx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0);
-        let gy = (wy / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0);
+        let gx = (wx / cell_size).clamp(0.0, grid_size as f32 - 1.0);
+        let gy = (wy / cell_size).clamp(0.0, grid_size as f32 - 1.0);
         sim.spawn_hypha_at(rng, gx, gy);
     }
 
     if is_key_pressed(KeyCode::N) {
         let (mx, my) = mouse_position();
         let (wx, wy) = mouse_to_world(mx, my);
-        let gx = (wx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
-        let gy = (wy / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gx = (wx / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
+        let gy = (wy / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
         sim.add_nutrient_patch(gx, gy);
     }
 
@@ -155,8 +156,8 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         // Add nitrogen patch at mouse position (in world coordinates)
         let (mx, my) = mouse_position();
         let (wx, wy) = mouse_to_world(mx, my);
-        let gx = (wx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
-        let gy = (wy / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gx = (wx / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
+        let gy = (wy / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
         sim.add_nitrogen_patch(gx, gy);
     }
 
@@ -168,8 +169,8 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
     if is_mouse_button_pressed(MouseButton::Left) && !is_panning {
         let (mx, my) = mouse_position();
         let (wx, wy) = mouse_to_world(mx, my);
-        let gx = (wx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
-        let gy = (wy / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gx = (wx / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
+        let gy = (wy / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
         sim.add_nutrient_cell(gx, gy);
     }
 
@@ -177,8 +178,8 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         // Right click to add nitrogen cell (in world coordinates)
         let (mx, my) = mouse_position();
         let (wx, wy) = mouse_to_world(mx, my);
-        let gx = (wx / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
-        let gy = (wy / sim.config.cell_size).clamp(0.0, sim.config.grid_size as f32 - 1.0) as usize;
+        let gx = (wx / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
+        let gy = (wy / cell_size).clamp(0.0, grid_size as f32 - 1.0) as usize;
         sim.add_nitrogen_cell(gx, gy);
     }
 }

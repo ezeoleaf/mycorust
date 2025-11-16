@@ -1,0 +1,97 @@
+# MycoRust Simulation Configuration
+# Edit this file to customize the simulation parameters
+# See README.md for detailed documentation on each parameter
+
+# Grid/Display
+grid_size: 200
+cell_size: 4.0
+
+# Growth & Branching
+branch_prob: 0.008  # Branching probability per step
+step_size: 0.5      # Movement step length per frame
+gradient_steering_strength: 0.1  # Steering toward nutrient gradient
+angle_wander_range: 0.05  # Random wander added to direction each frame
+
+# Nutrients
+nutrient_decay: 0.01  # Max nutrient absorbed per step at a tip
+diffusion_rate: 0.05  # How quickly nutrients diffuse across neighbors
+spore_germination_threshold: 0.6  # Nutrient threshold for spores to germinate
+spore_max_age: 5.0  # Maximum age before spores die
+tropism_angle: 0.78539816339  # Global tropism bias angle (π/4)
+tropism_strength: 0.01  # Global tropism bias strength
+nutrient_regen_rate: 0.004  # Rate of nutrient regeneration
+nutrient_regen_floor: 0.12  # Minimum nutrient level for regeneration
+nutrient_regen_samples: 120  # Number of samples for nutrient regeneration
+
+# Energy
+energy_decay_rate: 0.9985  # Passive energy decay per step
+min_energy_to_live: 0.005  # Below this, hyphae die
+
+# Networking
+anastomosis_distance: 2.0  # Distance within which hyphae connect
+connection_flow_rate: 0.02  # Diffusive energy flow along connections
+
+# Avoidance
+hyphae_avoidance_distance: 2.0  # Hyphae turn away if next step is closer than this
+
+# Trails
+max_segment_age: 10.0  # Maximum age before segments are removed
+segment_age_increment: 0.01  # How fast segments age per frame
+
+# Fruiting
+fruiting_min_hyphae: 12  # Minimum hyphae count to spawn fruiting bodies
+fruiting_threshold_total_energy: 6.0  # Minimum total energy for fruiting
+fruiting_cooldown: 10.0  # Cooldown between fruiting body spawns
+fruiting_lifespan_min: 12.0  # Minimum fruiting body lifespan
+fruiting_lifespan_max: 20.0  # Maximum fruiting body lifespan
+fruiting_spore_release_fraction: 0.6  # Fraction of energy released as spores
+fruiting_spore_count: 6  # Number of spores released by fruiting bodies
+fruiting_spore_drift: 0.6  # Spore drift amount
+fruiting_spore_radius: 9.0  # Spore release radius
+fruiting_spawn_nutrient_threshold: 0.38  # Nutrient threshold for spawning
+fruiting_nutrient_return_fraction: 0.25  # Fraction of nutrients returned on death
+fruiting_spore_release_interval: 0.15  # Interval between spore releases
+fruiting_fallback_threshold: 0.2  # Fallback threshold for spawning
+fruiting_failed_attempts_before_fallback: 3  # Failed attempts before using fallback
+
+# Initialization
+initial_hyphae_count: 5  # Number of hyphae at simulation start
+obstacle_count: 300  # Number of obstacles in the grid
+
+# Network Intelligence: Signal Propagation
+signal_propagation_enabled: true  # Enable signal propagation
+signal_decay_rate: 0.95  # Signals decay 5% per frame
+signal_strength_threshold: 0.1  # Minimum signal strength to trigger behavior
+signal_trigger_nutrient_threshold: 0.5  # Nutrient threshold to trigger signals
+
+# Network Intelligence: Adaptive Growth
+adaptive_growth_enabled: true  # Enable adaptive growth
+flow_strengthening_rate: 0.002  # How fast connections strengthen with flow
+flow_decay_rate: 0.998  # How fast connection strength decays
+min_connection_strength: 0.1  # Minimum connection strength
+pruning_threshold: 0.05  # Prune branches with strength below this
+
+# Network Intelligence: Memory & Learning
+memory_enabled: true  # Enable memory system
+memory_decay_rate: 0.995  # Memory decays 0.5% per frame
+memory_update_strength: 0.3  # How strongly nutrient discoveries update memory
+memory_influence: 0.15  # How much memory affects growth direction (0.0-1.0)
+
+# Performance: Growth Limits
+max_hyphae: 2000  # Maximum number of hyphae (0 = unlimited)
+max_hyphae_branching_threshold: 1500  # Stop branching when hyphae count exceeds this
+
+# Weather
+weather_enabled: true  # Enable weather system
+weather_affects_growth: true  # Weather affects growth rate
+weather_affects_energy: true  # Weather affects energy consumption
+
+# Fusion
+fusion_enabled: true  # Enable fusion
+fusion_distance: 1.0  # Distance threshold for fusion (should be < anastomosis_distance)
+fusion_energy_transfer: 0.5  # Energy transfer rate when fusing
+fusion_min_age: 0.1  # Minimum age for hyphae to be eligible for fusion
+
+# Camera
+camera_enabled: false  # Enable camera pan/zoom functionality
+

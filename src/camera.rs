@@ -18,6 +18,9 @@ pub struct Camera {
     pub zoom_speed: f32,
     // For smooth panning with mouse drag
     pub last_mouse_pos: Option<Vec2>,
+    // Store grid size and cell size for camera calculations
+    pub grid_size: usize,
+    pub cell_size: f32,
     pub is_panning: bool,
 }
 
@@ -33,13 +36,14 @@ impl Camera {
         1.0
     }
 
-    pub fn new(enabled: bool) -> Self {
+    pub fn new(enabled: bool, config: &crate::config::SimulationConfig) -> Self {
         // Center camera on the grid
-        // Grid goes from (0, 0) to (GRID_SIZE * CELL_SIZE, GRID_SIZE * CELL_SIZE)
-        // So center is at (GRID_SIZE * CELL_SIZE / 2, GRID_SIZE * CELL_SIZE / 2)
-        use crate::config::{CELL_SIZE, GRID_SIZE};
-        let grid_center_x = (GRID_SIZE as f32 * CELL_SIZE) / 2.0;
-        let grid_center_y = (GRID_SIZE as f32 * CELL_SIZE) / 2.0;
+        // Grid goes from (0, 0) to (grid_size * cell_size, grid_size * cell_size)
+        // So center is at (grid_size * cell_size / 2, grid_size * cell_size / 2)
+        let grid_size = config.grid_size;
+        let cell_size = config.cell_size;
+        let grid_center_x = (grid_size as f32 * cell_size) / 2.0;
+        let grid_center_y = (grid_size as f32 * cell_size) / 2.0;
 
         // Calculate minimum zoom to show entire grid filling the screen
         let min_zoom = Self::calculate_min_zoom();
@@ -55,6 +59,8 @@ impl Camera {
             zoom_speed: 0.1,
             last_mouse_pos: None,
             is_panning: false,
+            grid_size,
+            cell_size,
         }
     }
 
@@ -64,10 +70,11 @@ impl Camera {
     }
 
     /// Reset camera to default position and zoom (centered on grid, grid filling screen)
-    pub fn reset(&mut self) {
-        use crate::config::{CELL_SIZE, GRID_SIZE};
-        let grid_center_x = (GRID_SIZE as f32 * CELL_SIZE) / 2.0;
-        let grid_center_y = (GRID_SIZE as f32 * CELL_SIZE) / 2.0;
+    pub fn reset(&mut self, config: &crate::config::SimulationConfig) {
+        let grid_size = config.grid_size;
+        let cell_size = config.cell_size;
+        let grid_center_x = (grid_size as f32 * cell_size) / 2.0;
+        let grid_center_y = (grid_size as f32 * cell_size) / 2.0;
         self.x = grid_center_x;
         self.y = grid_center_y;
         // Update min_zoom in case screen size changed, then set zoom to minimum
@@ -86,10 +93,9 @@ impl Camera {
 
         #[cfg(not(test))]
         {
-            use crate::config::{CELL_SIZE, GRID_SIZE};
             use macroquad::math::Rect;
-            let grid_width = GRID_SIZE as f32 * CELL_SIZE;
-            let grid_height = GRID_SIZE as f32 * CELL_SIZE;
+            let grid_width = self.grid_size as f32 * self.cell_size;
+            let grid_height = self.grid_size as f32 * self.cell_size;
 
             // Calculate viewport size in world units based on zoom level
             let viewport_width = grid_width / self.zoom;
@@ -185,7 +191,7 @@ impl Camera {
     /// Update camera based on input
     /// Only processes input if camera is enabled
     #[cfg(not(test))]
-    pub fn update(&mut self) {
+    pub fn update(&mut self, config: &crate::config::SimulationConfig) {
         // Don't process input if camera is disabled
         if !self.enabled {
             return;
@@ -258,12 +264,12 @@ impl Camera {
 
         // Reset camera (Home key)
         if is_key_pressed(KeyCode::Home) {
-            self.reset();
+            self.reset(config);
         }
     }
 
     #[cfg(test)]
-    pub fn update(&mut self) {
+    pub fn update(&mut self, _config: &crate::config::SimulationConfig) {
         // Test stub - camera update not needed in tests
     }
 }

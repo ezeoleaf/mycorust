@@ -35,6 +35,10 @@ struct Args {
     /// Port for headless API server
     #[arg(long, default_value_t = 8080)]
     port: u16,
+
+    /// Configuration file path (YAML or JSON). If not specified, searches for config.yaml, config.yml, or config.json in current directory.
+    #[arg(short, long)]
+    config: Option<String>,
 }
 
 #[cfg(not(feature = "ui"))]
@@ -42,7 +46,8 @@ struct Args {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Headless mode only
     let args = Args::parse();
-    headless_main(args.port).await
+    let config = load_config(args.config.as_deref())?;
+    headless_main(args.port, config).await
 }
 
 #[cfg(feature = "ui")]
@@ -50,23 +55,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn main() {
     let args = Args::parse();
 
+    // Load configuration
+    let config = match load_config(args.config.as_deref()) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Error loading config: {}", e);
+            std::process::exit(1);
+        }
+    };
+
     if args.headless {
         // Run headless mode even with UI feature enabled
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            if let Err(e) = headless_main(args.port).await {
+            if let Err(e) = headless_main(args.port, config).await {
                 eprintln!("Error running headless mode: {}", e);
                 std::process::exit(1);
             }
         });
     } else {
         // Run UI mode
-        ui_main().await;
+        ui_main(config).await;
+    }
+}
+
+/// Load configuration from file or use default
+fn load_config(config_path: Option<&str>) -> Result<SimulationConfig, Box<dyn std::error::Error>> {
+    if let Some(path) = config_path {
+        // User specified a config file
+        SimulationConfig::from_file(path)
+            .map_err(|e| format!("Failed to load config from {}: {}", path, e).into())
+    } else {
+        // Try default paths
+        Ok(SimulationConfig::from_default_paths())
     }
 }
 
 #[cfg(feature = "ui")]
-async fn ui_main() {
+async fn ui_main(config: SimulationConfig) {
     use controls::handle_controls;
     use visualization::{
         draw_connections, draw_fruit_bodies, draw_help_popup, draw_hyphae_enhanced,
@@ -75,13 +101,13 @@ async fn ui_main() {
     };
 
     let mut rng = thread_rng();
-    // Initialize simulation
-    let mut sim = Simulation::new(&mut rng);
+    // Initialize simulation with loaded config
+    let mut sim = Simulation::with_config(&mut rng, config);
 
     loop {
         // Update camera (pan/zoom)
         if sim.config.camera_enabled {
-            sim.camera.update();
+            sim.camera.update(&sim.config);
         }
 
         // Handle player controls
@@ -96,10 +122,10 @@ async fn ui_main() {
         clear_background(Color::new(0.05, 0.10, 0.35, 1.0));
 
         // Draw nutrients
-        draw_nutrients(&sim.state.nutrients);
+        draw_nutrients(&sim.state.nutrients, &sim.config);
 
         // Draw obstacles
-        draw_obstacles(&sim.state.obstacles);
+        draw_obstacles(&sim.state.obstacles, &sim.config);
 
         // Redraw all past segments to keep trails visible (with fading)
         // Enhanced: Age-based coloring (young=white, old=dark)
@@ -114,10 +140,11 @@ async fn ui_main() {
             &sim.state.connections,
             &sim.state.hyphae,
             sim.connections_visible,
+            &sim.config,
         );
 
         // Network Intelligence: Draw memory overlay
-        draw_memory_overlay(&sim.state.nutrient_memory, sim.memory_visible);
+        draw_memory_overlay(&sim.state.nutrient_memory, sim.memory_visible, &sim.config);
 
         // Enhanced Visualization: Draw hyphae with flow/stress coloring
         // Note: This is optional and can impact performance - toggle with 'V'
@@ -128,11 +155,12 @@ async fn ui_main() {
                 sim.show_flow,
                 sim.show_stress,
                 &sim.hypha_flow_cache,
+                &sim.config,
             );
         }
 
         // Draw fruiting bodies with energy transfer visualization
-        draw_fruit_bodies(&sim.state.fruit_bodies, &sim.state.hyphae);
+        draw_fruit_bodies(&sim.state.fruit_bodies, &sim.state.hyphae, &sim.config);
 
         // Reset camera for UI elements (minimap, stats) - these should not be affected by pan/zoom
         if sim.config.camera_enabled {
@@ -140,7 +168,12 @@ async fn ui_main() {
         }
 
         // Minimap overlay
-        draw_minimap(&sim.state.nutrients, &sim.state.hyphae, sim.minimap_visible);
+        draw_minimap(
+            &sim.state.nutrients,
+            &sim.state.hyphae,
+            sim.minimap_visible,
+            &sim.config,
+        );
 
         // Update simulation only if not paused
         // Handle speed multiplier with accumulator for fractional speeds
@@ -213,10 +246,15 @@ async fn ui_main() {
 
 #[cfg(feature = "ui")]
 fn window_conf() -> Conf {
+    // Try to load config to set window size, fall back to defaults if not available
+    let config = SimulationConfig::from_default_paths();
+    let width = (config.grid_size as f32 * config.cell_size) as i32;
+    let height = (config.grid_size as f32 * config.cell_size) as i32;
+
     Conf {
         window_title: "Mycelium Growth Simulation".to_owned(),
-        window_width: (GRID_SIZE as f32 * CELL_SIZE) as i32,
-        window_height: (GRID_SIZE as f32 * CELL_SIZE) as i32,
+        window_width: width,
+        window_height: height,
         ..Default::default()
     }
 }
@@ -262,7 +300,10 @@ fn capture_screenshot(filename: &str) -> Result<(), Box<dyn std::error::Error>> 
 }
 
 /// Headless mode - runs HTTP API server
-async fn headless_main(port: u16) -> Result<(), Box<dyn std::error::Error>> {
+async fn headless_main(
+    port: u16,
+    config: SimulationConfig,
+) -> Result<(), Box<dyn std::error::Error>> {
     use api::run_server;
     use api::ApiState;
     use simulation::set_headless_mode;
@@ -270,9 +311,9 @@ async fn headless_main(port: u16) -> Result<(), Box<dyn std::error::Error>> {
     // Set headless mode flag to avoid calling macroquad functions
     set_headless_mode(true);
 
-    // Initialize simulation
+    // Initialize simulation with loaded config
     let mut rng = thread_rng();
-    let sim = Simulation::new(&mut rng);
+    let sim = Simulation::with_config(&mut rng, config);
 
     // Create API state
     let api_state = ApiState::new(sim);

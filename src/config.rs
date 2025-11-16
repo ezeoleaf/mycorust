@@ -195,7 +195,87 @@ impl SimulationConfig {
     pub fn hyphae_avoidance_distance_sq(&self) -> f32 {
         self.hyphae_avoidance_distance * self.hyphae_avoidance_distance
     }
-}
 
-pub const GRID_SIZE: usize = 200;
-pub const CELL_SIZE: f32 = 4.0;
+    /// Load configuration from a file (YAML or JSON).
+    /// If the file doesn't exist, returns the default configuration.
+    /// If the file exists but parsing fails, returns an error.
+    pub fn from_file<P: AsRef<std::path::Path>>(
+        path: P,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let path = path.as_ref();
+
+        if !path.exists() {
+            return Err(format!("Config file not found: {}", path.display()).into());
+        }
+
+        let contents = std::fs::read_to_string(path)?;
+
+        // Determine format based on file extension
+        let ext = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_lowercase());
+
+        let config = match ext.as_deref() {
+            Some("yaml") | Some("yml") => serde_yaml::from_str(&contents)?,
+            Some("json") => serde_json::from_str(&contents)?,
+            _ => {
+                // Try YAML first, then JSON
+                match serde_yaml::from_str(&contents) {
+                    Ok(config) => config,
+                    Err(_) => serde_json::from_str(&contents)?,
+                }
+            }
+        };
+
+        Ok(config)
+    }
+
+    /// Save configuration to a file (YAML format).
+    pub fn save_to_file<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let path = path.as_ref();
+        let yaml = serde_yaml::to_string(self)?;
+        std::fs::write(path, yaml)?;
+        Ok(())
+    }
+
+    /// Load configuration from file, or return default if file doesn't exist.
+    /// This is a convenience function that doesn't error if the file is missing.
+    pub fn from_file_or_default<P: AsRef<std::path::Path>>(path: P) -> Self {
+        match Self::from_file(path) {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("Warning: Could not load config file: {}", e);
+                eprintln!("Using default configuration.");
+                Self::default()
+            }
+        }
+    }
+
+    /// Try to load config from common default locations, or return default.
+    pub fn from_default_paths() -> Self {
+        let default_paths = vec!["config.yaml", "config.yml", "config.json"];
+
+        for path in &default_paths {
+            if std::path::Path::new(path).exists() {
+                match Self::from_file(path) {
+                    Ok(config) => {
+                        println!("Loaded configuration from: {}", path);
+                        return config;
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Could not parse config file {}: {}", path, e);
+                        eprintln!("Using default configuration.");
+                        return Self::default();
+                    }
+                }
+            }
+        }
+
+        // No config file found, use default
+        Self::default()
+    }
+}
