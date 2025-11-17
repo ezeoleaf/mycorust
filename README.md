@@ -54,6 +54,7 @@ The simulation can be tested without requiring a graphics context, making it CI/
 
 #### Core Simulation
 - Nutrient field rendered as a brown→green heatmap (with diffusion over time). Realistic organic patch-based distribution with multiple nutrient types (sugar and nitrogen).
+- **Directional Nutrient Flow**: Water flow field that drags nutrients in a specific direction, creating anisotropic diffusion. Flow strength and direction are configurable, and rain increases flow strength. This produces beautiful emergent branching behavior as hyphae follow nutrient gradients that are shaped by water flow.
 - Hyphae growth: gradient following + small random wander.
 - Branching with configurable probability.
 - Edge reflection with axis-correct bounce and a slight jitter.
@@ -442,6 +443,12 @@ let sim = Simulation::with_config(&mut rng, config);
 - `tropism_angle: f32`, `tropism_strength: f32` — global tropism bias (default: π/4, 0.01)
 - `nutrient_regen_rate: f32` — rate of nutrient regeneration (default: 0.004)
 - `nutrient_regen_floor: f32` — minimum nutrient level for regeneration (default: 0.12)
+
+#### Directional Flow (Water Drags Nutrients)
+- `flow_enabled: bool` — enable directional nutrient flow (default: true)
+- `flow_strength: f32` — strength of directional flow (0.0-1.0) (default: 0.3)
+- `flow_direction: f32` — flow direction in radians (0 = right, π/2 = down) (default: π/4)
+- `flow_variation: f32` — random variation in flow direction per timestep (default: 0.1)
 
 #### Energy
 - `energy_decay_rate: f32` — passive energy decay per step (default: 0.9985)

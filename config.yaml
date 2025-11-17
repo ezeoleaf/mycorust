@@ -23,6 +23,12 @@ nutrient_regen_rate: 0.004  # Rate of nutrient regeneration
 nutrient_regen_floor: 0.12  # Minimum nutrient level for regeneration
 nutrient_regen_samples: 120  # Number of samples for nutrient regeneration
 
+# Directional Flow (water drags nutrients)
+flow_enabled: true  # Enable directional nutrient flow
+flow_strength: 0.3  # Strength of directional flow (0.0-1.0)
+flow_direction: 0.78539816339  # Flow direction in radians (π/4 = 45 degrees, down-right)
+flow_variation: 0.1  # Random variation in flow direction per timestep
+
 # Energy
 energy_decay_rate: 0.9985  # Passive energy decay per step
 min_energy_to_live: 0.005  # Below this, hyphae die

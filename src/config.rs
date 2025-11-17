@@ -19,6 +19,11 @@ pub struct SimulationConfig {
     pub diffusion_rate: f32,
     pub spore_germination_threshold: f32,
     pub spore_max_age: f32,
+    // Directional flow (water drags nutrients)
+    pub flow_enabled: bool,  // Enable directional nutrient flow
+    pub flow_strength: f32,  // Strength of directional flow (0.0-1.0)
+    pub flow_direction: f32, // Flow direction in radians (0 = right, π/2 = down)
+    pub flow_variation: f32, // Random variation in flow direction per timestep
 
     // Chemotaxis/tropism
     pub tropism_angle: f32,
@@ -126,6 +131,11 @@ impl Default for SimulationConfig {
             diffusion_rate: 0.05,
             spore_germination_threshold: 0.6,
             spore_max_age: 5.0,
+            // Directional flow (water drags nutrients)
+            flow_enabled: true,
+            flow_strength: 0.3,                          // 30% directional bias
+            flow_direction: std::f32::consts::FRAC_PI_4, // 45 degrees (down-right)
+            flow_variation: 0.1,                         // Small random variation
             tropism_angle: std::f32::consts::FRAC_PI_4,
             tropism_strength: 0.01,
             obstacle_count: 300,

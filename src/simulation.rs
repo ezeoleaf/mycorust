@@ -76,6 +76,9 @@ pub struct SimulationState {
     pub spatial_grid_ny: usize,
     // Weather system
     pub weather: Weather,
+    // Water flow field (for directional nutrient transport)
+    pub flow_velocity_x: Vec<Vec<f32>>, // Flow velocity in X direction
+    pub flow_velocity_y: Vec<Vec<f32>>, // Flow velocity in Y direction
 }
 
 impl SimulationState {
@@ -104,6 +107,8 @@ impl SimulationState {
             spatial_grid_nx: nx,
             spatial_grid_ny: ny,
             weather: Weather::new(),
+            flow_velocity_x: vec![vec![0.0f32; grid_size]; grid_size],
+            flow_velocity_y: vec![vec![0.0f32; grid_size]; grid_size],
         }
     }
 }
@@ -1697,6 +1702,36 @@ impl Simulation {
             }
         }
 
+        // Update flow field (water flow direction and strength)
+        if self.config.flow_enabled {
+            // Base flow direction with random variation
+            let mut flow_dir = self.config.flow_direction;
+            if self.config.flow_variation > 0.0 {
+                flow_dir += rng.gen_range(-self.config.flow_variation..self.config.flow_variation);
+            }
+
+            // Weather affects flow: rain increases flow strength and can change direction
+            let flow_strength = if self.config.weather_enabled {
+                let rain_boost = 1.0 + self.state.weather.rain * 0.5; // Rain increases flow
+                self.config.flow_strength * rain_boost.min(1.5) // Cap at 1.5x
+            } else {
+                self.config.flow_strength
+            };
+
+            // Update flow velocity field (can be spatially varying, but for simplicity use uniform field)
+            let flow_vx = flow_strength * flow_dir.cos();
+            let flow_vy = flow_strength * flow_dir.sin();
+
+            // Update flow field (could be spatially varying, but uniform for now)
+            for x in 0..self.config.grid_size {
+                for y in 0..self.config.grid_size {
+                    // Simple uniform flow field (could be made spatially varying later)
+                    self.state.flow_velocity_x[x][y] = flow_vx;
+                    self.state.flow_velocity_y[x][y] = flow_vy;
+                }
+            }
+        }
+
         // diffuse nutrients (LOD: bounding box + frame skipping)
         // Only skip diffusion when FPS is very low to prevent visual issues
         let do_diffuse = if get_fps() < 25.0 {
@@ -1758,23 +1793,55 @@ impl Simulation {
             }
 
             // Diffuse both sugar and nitrogen in back buffer (only active region)
+            // With directional flow: nutrients flow in the direction of water flow
             for x in x0..=x1 {
                 for y in y0..=y1 {
-                    // Sugar diffusion - read from back buffer (which has current values)
-                    let avg_sugar = (self.state.nutrients_back.sugar[x + 1][y]
-                        + self.state.nutrients_back.sugar[x - 1][y]
-                        + self.state.nutrients_back.sugar[x][y + 1]
-                        + self.state.nutrients_back.sugar[x][y - 1])
-                        * 0.25;
+                    // Get flow velocity at this position
+                    let flow_vx = if self.config.flow_enabled {
+                        self.state.flow_velocity_x[x][y]
+                    } else {
+                        0.0
+                    };
+                    let flow_vy = if self.config.flow_enabled {
+                        self.state.flow_velocity_y[x][y]
+                    } else {
+                        0.0
+                    };
+
+                    // Calculate weighted neighbor averages based on flow direction
+                    // Flow direction increases weight in that direction
+                    let flow_mag = (flow_vx * flow_vx + flow_vy * flow_vy).sqrt();
+                    let base_weight = 0.25; // Base weight for each neighbor (isotropic)
+                    let flow_weight = flow_mag * 0.3; // Additional weight from flow (max 30% bias)
+
+                    // Calculate directional weights
+                    // Positive flow_vx means flow to the right (weight right neighbor more)
+                    // Positive flow_vy means flow down (weight bottom neighbor more)
+                    let weight_right = base_weight + flow_vx.max(0.0) * flow_weight;
+                    let weight_left = base_weight - flow_vx.min(0.0) * flow_weight;
+                    let weight_down = base_weight + flow_vy.max(0.0) * flow_weight;
+                    let weight_up = base_weight - flow_vy.min(0.0) * flow_weight;
+
+                    // Normalize weights to sum to 1.0
+                    let total_weight = weight_right + weight_left + weight_down + weight_up;
+                    let norm_right = weight_right / total_weight;
+                    let norm_left = weight_left / total_weight;
+                    let norm_down = weight_down / total_weight;
+                    let norm_up = weight_up / total_weight;
+
+                    // Sugar diffusion with directional flow
+                    let avg_sugar = self.state.nutrients_back.sugar[x + 1][y] * norm_right
+                        + self.state.nutrients_back.sugar[x - 1][y] * norm_left
+                        + self.state.nutrients_back.sugar[x][y + 1] * norm_down
+                        + self.state.nutrients_back.sugar[x][y - 1] * norm_up;
                     self.state.nutrients_back.sugar[x][y] +=
                         diffusion_rate * (avg_sugar - self.state.nutrients_back.sugar[x][y]);
 
-                    // Nitrogen diffusion (slower)
-                    let avg_nitrogen = (self.state.nutrients_back.nitrogen[x + 1][y]
-                        + self.state.nutrients_back.nitrogen[x - 1][y]
-                        + self.state.nutrients_back.nitrogen[x][y + 1]
-                        + self.state.nutrients_back.nitrogen[x][y - 1])
-                        * 0.25;
+                    // Nitrogen diffusion (slower, same directional flow)
+                    let avg_nitrogen = self.state.nutrients_back.nitrogen[x + 1][y] * norm_right
+                        + self.state.nutrients_back.nitrogen[x - 1][y] * norm_left
+                        + self.state.nutrients_back.nitrogen[x][y + 1] * norm_down
+                        + self.state.nutrients_back.nitrogen[x][y - 1] * norm_up;
                     self.state.nutrients_back.nitrogen[x][y] += diffusion_rate
                         * 0.7
                         * (avg_nitrogen - self.state.nutrients_back.nitrogen[x][y]);

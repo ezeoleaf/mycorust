@@ -51,16 +51,19 @@ Implementation:
 
 This stabilizes the simulation but also makes it more biological.
 
-#### ✔ Nutrient Diffusion / Gradient Flow
+#### ✔ Nutrient Diffusion / Gradient Flow (IMPLEMENTED)
 
 Right now nutrients just decrease when eaten.
 But nutrients IRL diffuse through soil.
 
-Add:
-- a simple diffusion kernel
-- directional flow (water drags nutrients)
+Implemented:
+- ✅ Simple diffusion kernel (4-neighbor weighted average)
+- ✅ Directional flow (water drags nutrients) - nutrients flow in the direction of water flow
+- ✅ Anisotropic diffusion - stronger diffusion in the flow direction
+- ✅ Flow field affected by weather (rain increases flow strength)
+- ✅ Configurable flow direction, strength, and variation
 
-This alone can produce BEAUTIFUL emergent branching behavior.
+This produces beautiful emergent branching behavior as hyphae follow nutrient gradients shaped by water flow.
 
 ### 2. Environmental Simulation
 
