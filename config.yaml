@@ -95,3 +95,11 @@ fusion_min_age: 0.1  # Minimum age for hyphae to be eligible for fusion
 # Camera
 camera_enabled: false  # Enable camera pan/zoom functionality
 
+# Hyphal Senescence & Death
+senescence_enabled: true  # Enable hyphal senescence and death system
+senescence_base_probability: 0.00001  # Base death probability per timestep (0.0-1.0) - very low to prevent premature death
+senescence_nutrient_flow_threshold: 0.005  # Low nutrient flow threshold that increases death probability
+senescence_distance_threshold: 30.0  # Distance from main network that increases death probability
+senescence_weather_extreme_threshold: 0.3  # Weather temperature threshold for extreme conditions (too hot/cold)
+senescence_unsupported_collapse_distance: 50.0  # Distance beyond which unsupported branches collapse
+senescence_min_age: 5.0  # Minimum age before senescence applies, giving hyphae time to establish connections

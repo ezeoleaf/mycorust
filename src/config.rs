@@ -31,6 +31,15 @@ pub struct SimulationConfig {
     pub energy_decay_rate: f32,
     pub min_energy_to_live: f32,
 
+    // Hyphal Senescence & Death
+    pub senescence_enabled: bool, // Enable hyphal senescence and death system
+    pub senescence_base_probability: f32, // Base death probability per timestep (0.0-1.0)
+    pub senescence_nutrient_flow_threshold: f32, // Low nutrient flow increases death probability below this
+    pub senescence_distance_threshold: f32, // Distance from main network that increases death probability
+    pub senescence_weather_extreme_threshold: f32, // Weather temperature threshold for extreme conditions (too hot/cold)
+    pub senescence_unsupported_collapse_distance: f32, // Distance beyond which unsupported branches collapse
+    pub senescence_min_age: f32, // Minimum age before senescence applies (gives hyphae time to establish)
+
     // Anastomosis
     pub anastomosis_distance: f32,
     pub connection_flow_rate: f32,
@@ -122,6 +131,16 @@ impl Default for SimulationConfig {
             obstacle_count: 300,
             energy_decay_rate: 0.9985, // Slightly slower decay to allow hyphae to survive longer
             min_energy_to_live: 0.005, // Lower threshold so hyphae can survive longer
+
+            // Hyphal Senescence & Death
+            senescence_enabled: true,
+            senescence_base_probability: 0.00001, // Very low base probability (0.001% per timestep)
+            senescence_nutrient_flow_threshold: 0.005, // Low flow threshold (lowered to be less aggressive)
+            senescence_distance_threshold: 30.0, // Distance from network that increases death risk (increased)
+            senescence_weather_extreme_threshold: 0.3, // Temperature < 0.5 or > 1.5 is extreme (more lenient)
+            senescence_unsupported_collapse_distance: 50.0, // Branches beyond this distance collapse (increased)
+            senescence_min_age: 5.0, // Minimum age before senescence applies (gives hyphae time to establish)
+
             anastomosis_distance: 2.0,
             connection_flow_rate: 0.02,
             hyphae_avoidance_distance: 2.0,

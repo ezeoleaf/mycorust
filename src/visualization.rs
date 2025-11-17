@@ -210,8 +210,36 @@ pub fn draw_hyphae_enhanced(
         let mut color = Color::new(1.0, 1.0, 1.0, base_alpha * quality_factor);
         let mut radius = base_radius * quality_factor;
 
+        // Hyphal Senescence: Brown/grey decay color for dying hyphae
+        // Senescence factor > 0.3 shows decay colors (brown/grey)
+        if h.senescence_factor > 0.3 {
+            // Brown/grey decay color: blend from healthy color to brown/grey
+            let decay_amount = ((h.senescence_factor - 0.3) / 0.7).min(1.0); // Normalize 0.3-1.0 to 0.0-1.0
+                                                                             // Brown: RGB(139, 69, 19) or grey: RGB(128, 128, 128)
+                                                                             // Use brown for early decay, grey for advanced decay
+            if decay_amount < 0.5 {
+                // Early decay: brown
+                let brown_r = 0.545; // 139/255
+                let brown_g = 0.271; // 69/255
+                let brown_b = 0.075; // 19/255
+                color.r = color.r * (1.0 - decay_amount * 2.0) + brown_r * (decay_amount * 2.0);
+                color.g = color.g * (1.0 - decay_amount * 2.0) + brown_g * (decay_amount * 2.0);
+                color.b = color.b * (1.0 - decay_amount * 2.0) + brown_b * (decay_amount * 2.0);
+            } else {
+                // Advanced decay: grey
+                let grey = 0.5; // 128/255
+                let grey_blend = (decay_amount - 0.5) * 2.0; // Normalize 0.5-1.0 to 0.0-1.0
+                color.r = color.r * (1.0 - grey_blend) + grey * grey_blend;
+                color.g = color.g * (1.0 - grey_blend) + grey * grey_blend;
+                color.b = color.b * (1.0 - grey_blend) + grey * grey_blend;
+            }
+            // Reduce alpha for dying hyphae
+            color.a *= 1.0 - decay_amount * 0.5;
+        }
+
         // Environmental stress: low energy = red/orange, high energy = white/blue
-        if show_stress {
+        // Only apply if senescence is not dominant (senescence_factor < 0.3)
+        if show_stress && h.senescence_factor < 0.3 {
             let stress = 1.0 - h.energy;
             if stress > 0.3 {
                 color.r = 1.0;

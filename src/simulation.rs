@@ -197,6 +197,7 @@ impl Simulation {
                 strength: 1.0,
                 signal_received: 0.0,
                 last_nutrient_location: None,
+                senescence_factor: 0.0,
             });
         }
 
@@ -263,6 +264,7 @@ impl Simulation {
                 strength: 1.0,
                 signal_received: 0.0,
                 last_nutrient_location: None,
+                senescence_factor: 0.0,
             });
         }
 
@@ -480,6 +482,7 @@ impl Simulation {
             strength: 1.0,
             signal_received: 0.0,
             last_nutrient_location: None,
+            senescence_factor: 0.0,
         });
     }
     pub fn clear_segments(&mut self) {
@@ -499,6 +502,7 @@ impl Simulation {
             strength: 1.0,
             signal_received: 0.0,
             last_nutrient_location: None,
+            senescence_factor: 0.0,
         });
     }
     pub fn add_nutrient_patch(&mut self, gx: usize, gy: usize) {
@@ -1073,6 +1077,128 @@ impl Simulation {
                     continue;
                 }
 
+                // Hyphal Senescence & Death: Biological aging and death system
+                // Only apply to hyphae that are old enough to have established connections
+                if self.config.senescence_enabled
+                    && h.alive
+                    && h.age >= self.config.senescence_min_age
+                {
+                    // Compute nutrient flow for this hypha (from connections)
+                    let mut nutrient_flow = 0.0;
+                    let mut has_connections = false;
+                    for conn in &self.state.connections {
+                        if conn.hypha1 == idx || conn.hypha2 == idx {
+                            nutrient_flow += conn.flow_accumulator;
+                            has_connections = true;
+                        }
+                    }
+
+                    // Compute distance from main network (distance to nearest connected hypha or network center)
+                    let mut min_distance_to_network = f32::MAX;
+                    let network_center_x = self.config.grid_size as f32 / 2.0;
+                    let network_center_y = self.config.grid_size as f32 / 2.0;
+                    let dist_to_center = ((h.x - network_center_x).powi(2)
+                        + (h.y - network_center_y).powi(2))
+                    .sqrt();
+                    min_distance_to_network = min_distance_to_network.min(dist_to_center);
+
+                    // Check connections to find nearest connected hypha
+                    for conn in &self.state.connections {
+                        let other_idx = if conn.hypha1 == idx {
+                            conn.hypha2
+                        } else if conn.hypha2 == idx {
+                            conn.hypha1
+                        } else {
+                            continue;
+                        };
+                        if other_idx < hyphae_positions.len() {
+                            let (other_x, other_y, other_alive, _, _) = hyphae_positions[other_idx];
+                            if other_alive {
+                                let dist =
+                                    ((h.x - other_x).powi(2) + (h.y - other_y).powi(2)).sqrt();
+                                min_distance_to_network = min_distance_to_network.min(dist);
+                            }
+                        }
+                    }
+
+                    // Check parent connection
+                    if let Some(parent_idx) = h.parent {
+                        if parent_idx < hyphae_positions.len() {
+                            let (parent_x, parent_y, parent_alive, _, _) =
+                                hyphae_positions[parent_idx];
+                            if parent_alive {
+                                let dist =
+                                    ((h.x - parent_x).powi(2) + (h.y - parent_y).powi(2)).sqrt();
+                                min_distance_to_network = min_distance_to_network.min(dist);
+                            }
+                        }
+                    }
+
+                    // Calculate senescence factors
+                    let mut death_probability = self.config.senescence_base_probability;
+
+                    // Factor 1: Low nutrient flow increases death probability
+                    // Only apply if hypha has connections (otherwise it's too early to judge)
+                    if has_connections
+                        && nutrient_flow < self.config.senescence_nutrient_flow_threshold
+                    {
+                        let flow_factor =
+                            1.0 - (nutrient_flow / self.config.senescence_nutrient_flow_threshold);
+                        death_probability += flow_factor * 0.0002; // Reduced from 0.001 to 0.0002 (0.02% max)
+                    }
+
+                    // Factor 2: Distance from main network increases death probability
+                    if min_distance_to_network > self.config.senescence_distance_threshold {
+                        let distance_factor = ((min_distance_to_network
+                            - self.config.senescence_distance_threshold)
+                            / self.config.senescence_unsupported_collapse_distance)
+                            .min(1.0);
+                        death_probability += distance_factor * 0.0001; // Reduced from 0.0005 to 0.0001 (0.01% max)
+
+                        // Collapse unsupported branches (beyond threshold distance)
+                        if min_distance_to_network
+                            > self.config.senescence_unsupported_collapse_distance
+                        {
+                            death_probability += 0.002; // Reduced from 0.01 to 0.002 (0.2% chance)
+                        }
+                    }
+
+                    // Factor 3: Weather extremes (too hot or too cold)
+                    if self.config.weather_enabled {
+                        let temp = self.state.weather.temperature;
+                        let optimal_min = 0.8;
+                        let optimal_max = 1.2;
+                        if temp < (optimal_min - self.config.senescence_weather_extreme_threshold)
+                            || temp
+                                > (optimal_max + self.config.senescence_weather_extreme_threshold)
+                        {
+                            let extreme_factor = if temp < optimal_min {
+                                (optimal_min
+                                    - self.config.senescence_weather_extreme_threshold
+                                    - temp)
+                                    / self.config.senescence_weather_extreme_threshold
+                            } else {
+                                (temp
+                                    - optimal_max
+                                    - self.config.senescence_weather_extreme_threshold)
+                                    / self.config.senescence_weather_extreme_threshold
+                            }
+                            .min(1.0);
+                            death_probability += extreme_factor * 0.0002; // Reduced from 0.0008 to 0.0002 (0.02% max)
+                        }
+                    }
+
+                    // Update senescence factor (accumulates over time, but slower)
+                    let senescence_increase = death_probability * 5.0; // Reduced from 10.0 to 5.0
+                    h.senescence_factor = (h.senescence_factor + senescence_increase).min(1.0);
+
+                    // Apply death probability
+                    if rng.gen::<f32>() < death_probability {
+                        h.alive = false;
+                        continue;
+                    }
+                }
+
                 if let Some(parent_idx) = h.parent {
                     if parent_idx < hyphae_positions.len() {
                         let (parent_x, parent_y, parent_alive, parent_energy, _) =
@@ -1128,6 +1254,32 @@ impl Simulation {
                         let offset_x = h.x + branch_angle.cos() * offset_distance;
                         let offset_y = h.y + branch_angle.sin() * offset_distance;
 
+                        // Create segment immediately to connect parent to new branch (prevents blank space)
+                        #[cfg(feature = "ui")]
+                        #[cfg(not(test))]
+                        {
+                            let from = macroquad::prelude::vec2(
+                                h.x * self.config.cell_size,
+                                h.y * self.config.cell_size,
+                            );
+                            let to = macroquad::prelude::vec2(
+                                offset_x * self.config.cell_size,
+                                offset_y * self.config.cell_size,
+                            );
+                            self.state.segments.push(Segment { from, to, age: 0.0 });
+                        }
+                        #[cfg(any(test, not(feature = "ui")))]
+                        {
+                            use crate::types::Vec2;
+                            let from =
+                                Vec2::new(h.x * self.config.cell_size, h.y * self.config.cell_size);
+                            let to = Vec2::new(
+                                offset_x * self.config.cell_size,
+                                offset_y * self.config.cell_size,
+                            );
+                            self.state.segments.push(Segment { from, to, age: 0.0 });
+                        }
+
                         new_hyphae.push(Hypha {
                             x: offset_x,
                             y: offset_y,
@@ -1141,6 +1293,7 @@ impl Simulation {
                             strength: h.strength * 0.8, // Branches start slightly weaker
                             signal_received: 0.0,
                             last_nutrient_location: h.last_nutrient_location,
+                            senescence_factor: h.senescence_factor * 0.5, // Inherit some senescence
                         });
                         h.energy *= 0.5;
                     }
@@ -1702,6 +1855,7 @@ impl Simulation {
                     strength: 1.0,
                     signal_received: 0.0,
                     last_nutrient_location: Some((spore.x, spore.y)), // Remember where we germinated
+                    senescence_factor: 0.0,
                 });
                 spore.alive = false;
                 // Particle burst at germination (visualization only - not used in tests)

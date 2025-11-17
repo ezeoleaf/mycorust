@@ -1,329 +1,225 @@
-# MycoRust Code Review & Improvement Suggestions
+# MycoRust Improvements
 
-## 🔴 Critical Issues
+### 1. Biological Realism Upgrades
 
-### ✅ 1. Cargo.toml Edition Fix - COMPLETED
+These make the simulation feel more like actual mycelium.
 
-```toml
-edition = "2021"
-```
+#### ✔ Hyphal Senescence & Death (IMPLEMENTED)
 
-### 2. Unused Parent Field
+Real mycelium doesn't live forever. Hyphae weaken when:
+- nutrient flow is low
+- they're far from the main network
+- they're shaded / exposed to UV
+- weather is too hot / too cold
 
-The `parent: Option<usize>` field exists but transport code is commented out (lines 267-274). Either:
+Implemented:
+- ✅ death probability per timestep (configurable base probability with environmental modifiers)
+- ✅ collapse of unsupported branches (beyond threshold distance from network)
+- ✅ brown/grey decay color visualization (brown for early decay, grey for advanced decay)
+- ✅ senescence factor tracking (0.0 = healthy, 1.0 = dying/dead)
+- ✅ death probability increases based on:
+  - Low nutrient flow through connections
+  - Distance from main network (connections/parent)
+  - Extreme weather conditions (too hot/cold)
 
-- Remove the field if not needed, OR
-- Implement proper resource transport between hyphae
+This helps control exponential growth and makes the simulation more biologically realistic.
 
-### ✅ 3. Energy Death Not Implemented - COMPLETED
+#### ✔ Mycelial Density + Self-Inhibition
 
-Hyphae have energy but never die from starvation. They should die when energy reaches 0.
+Fungi avoid overcrowding their own filaments.
 
-## 🟡 Code Quality Improvements
+Add:
+- density map
+- inhibition when >X hyphae in a region
+- slow growth in already-exploited zones
 
-### ✅ 1. Extract Magic Numbers to Constants - COMPLETED
+This makes the network very natural-looking.
 
-Several magic numbers should be constants:
+#### ✔ Anastomosis (Hyphal Fusions)
 
-```rust
-const ENERGY_DECAY_RATE: f32 = 0.999;
-const MIN_ENERGY_TO_LIVE: f32 = 0.01;
-const SPORE_GERMINATION_THRESHOLD: f32 = 0.6;
-const ANASTOMOSIS_DISTANCE: f32 = 2.0;
-const DIFFUSION_RATE: f32 = 0.05;
-const GRADIENT_STEERING_STRENGTH: f32 = 0.1;
-const ANGLE_WANDER_RANGE: f32 = 0.05;
-```
+This is a HUGE upgrade.
 
-### ✅ 2. Performance: Reduce Segment Memory Growth - COMPLETED
+Hyphae fuse when near each other:
+- reduces redundancy
+- increases resource transport efficiency
+- forms loops (real fungi do this!)
 
-The `segments` vector grows indefinitely. Consider:
+Implementation:
+- if two tips come within distance R, connect them
+- share nutrient between parent nodes
+- store network graph relationships (edges)
 
-- Capping maximum segments
-- Using a circular buffer
-- Fading old segments (remove after N frames)
+This stabilizes the simulation but also makes it more biological.
 
-Implemented with trail decay system that ages and removes old segments.
+#### ✔ Nutrient Diffusion / Gradient Flow
 
-### ✅ 3. Anastomosis Logic Issue - COMPLETED
+Right now nutrients just decrease when eaten.
+But nutrients IRL diffuse through soil.
 
-Anastomosis should:
+Add:
+- a simple diffusion kernel
+- directional flow (water drags nutrients)
 
-- Connect them in a network
-- Enable resource sharing
-- Not randomly kill them
+This alone can produce BEAUTIFUL emergent branching behavior.
 
-### ✅ 4. Bounds Checking Duplication - COMPLETED
+### 2. Environmental Simulation
 
-Both obstacle check and boundary check did similar bounds validation. Refactored with `in_bounds(x, y)` helper.
+You already have basic weather logic — expand it into a real system.
 
-## 🟢 New Features to Add
+#### ✔ Seasonal cycles
+- temperature curve
+- humidity curve
+- fruiting triggers
 
-### ✅ 1. **Energy-Based Death System** - COMPLETED
+Spring = rapid growth
+Summer = drought stress
+Autumn = maximum fruiting
+Winter = dormancy
 
-```rust
-// In hyphae update loop:
-if h.energy < MIN_ENERGY_TO_LIVE {
-    h.alive = false;
-    continue;
-}
-```
+#### ✔ Soil moisture system
 
-### ✅ 2. **Resource Transport Between Hyphae** - COMPLETED
+Moisture strongly affects:
+- tip growth speed
+- branching factor
+- survival
+- nutrient availability
 
-Uncomment and fix the parent transport code. Consider distance-based transport:
+Implement a separate moisture grid.
 
-```rust
-if let Some(parent_idx) = h.parent {
-    if let Some(parent) = hyphae.get(parent_idx) {
-        let dx = h.x - parent.x;
-        let dy = h.y - parent.y;
-        let dist = (dx * dx + dy * dy).sqrt();
-        if dist < MAX_TRANSPORT_DISTANCE {
-            // Transfer energy based on distance
-            let transfer = 0.001 * h.energy * (1.0 - dist / MAX_TRANSPORT_DISTANCE);
-            h.energy -= transfer;
-            parent.energy = (parent.energy + transfer).min(1.0);
-        }
-    }
-}
-```
-
-### ✅ 3. **Statistics Display** - COMPLETED
-
-Add on-screen stats:
-
-```rust
-let stats_text = format!(
-    "Hyphae: {} | Spores: {} | Energy Avg: {:.2} | FPS: {:.0}",
-    hyphae.len(),
-    spores.len(),
-    avg_energy,
-    get_fps()
-);
-draw_text(&stats_text, 10.0, 20.0, 20.0, WHITE);
-```
-
-### ✅ 4. **Pause/Play Controls** - COMPLETED
-
-```rust
-let mut paused = false;
-if is_key_pressed(KeyCode::Space) {
-    paused = !paused;
-}
-if !paused {
-    // Update simulation
-}
-```
-
-### ✅ 5. **Hyphae Avoidance** - COMPLETED
-
-Prevent hyphae from growing into each other:
-
-```rust
-// Before moving, check if new position would overlap with another hypha
-let new_x = h.x + h.angle.cos() * STEP_SIZE;
-let new_y = h.y + h.angle.sin() * STEP_SIZE;
-let mut too_close = false;
-for other in &hyphae {
-    if other.alive && other as *const Hypha != h as *const Hypha {
-        let dx = new_x - other.x;
-        let dy = new_y - other.y;
-        if dx * dx + dy * dy < 4.0 { // too close
-            too_close = true;
-            break;
-        }
-    }
-}
-if too_close {
-    h.angle += rng.gen_range(-0.5..0.5); // turn away
-}
-```
-
-### ✅ 6. **Age-Based Characteristics** - COMPLETED
-
-Add age to hyphae and make older hyphae:
-
-- Thicker (wider lines)
-- Slower growing
-- More likely to branch
-- Better at resource transport
-
-### 7. **Visual Improvements**
-
-- **Trail fading**: Older segments fade over time
-- **Energy visualization**: Color hyphae by energy level (already partially done)
-- **Network visualization**: Highlight connected hyphae differently
-- **Growth direction indicators**: Small arrows showing growth direction
-
-### ✅ 8. **Multiple Spawn Points** - COMPLETED
-
-Allow starting from multiple locations:
-
-```rust
-let mut hyphae = vec![];
-for _ in 0..INITIAL_HYPHAE_COUNT {
-    hyphae.push(Hypha {
-        x: rng.gen_range(50.0..150.0),
-        y: rng.gen_range(50.0..150.0),
-        // ... rest
-    });
-}
-```
-
-### ✅ 9. **Keyboard Controls** - COMPLETED
-
-- `R` - Reset simulation
-- `C` - Clear all segments
-- `S` - Spawn new hypha at mouse
-- `N` - Add sugar patch at mouse
-- `T` - Add nitrogen patch at mouse
-- `SPACE` - Pause/Play
-- `X` - Toggle connections visibility
-- `M` - Toggle minimap visibility
-- `H` - Toggle hyphae visibility
-- `LMB` - Add single sugar cell
-- `RMB` - Add single nitrogen cell
-- `←` - Decrease simulation speed
-- `→` - Increase simulation speed
-- `0` - Reset speed to 1x
-
-### ✅ 10. **Better Anastomosis** - COMPLETED
-
-Instead of randomly killing, create actual connections:
-
-```rust
-struct Connection {
-    hypha1: usize,
-    hypha2: usize,
-    strength: f32,
-}
-let mut connections: Vec<Connection> = vec![];
-
-// When hyphae get close:
-if dist2 < 4.0 {
-    connections.push(Connection {
-        hypha1: i,
-        hypha2: j,
-        strength: 1.0,
-    });
-    // Draw connection line
-    draw_line(...);
-}
-```
-
-### ✅ 11. **Fruiting Body Formation** - COMPLETED
-
-When network reaches certain size/energy, spawn a fruiting body (mushroom). Fruiting bodies now accumulate energy from nearby hyphae, with visual energy transfer lines showing the flow. Fruiting bodies grow in size and change color based on accumulated energy, with a glow effect when energy is high.
-
-### 12. **Competing Networks**
-
-Different hypha groups (different colors) that compete for resources.
-
-### ✅ 13. **Trail Decay** - COMPLETED
-
-Instead of keeping all segments forever:
-
-```rust
-struct Segment {
-    from: Vec2,
-    to: Vec2,
-    age: f32,
-}
-// In update loop:
-segments.iter_mut().for_each(|s| s.age += 0.01);
-segments.retain(|s| s.age < MAX_SEGMENT_AGE);
-// Fade older segments
-```
-
-### ✅ 14. **Nutrient Source Types** - COMPLETED
-
-Different nutrient types (sugar, nitrogen, etc.) that hyphae prefer differently. Implemented with `NutrientGrid` supporting sugar (primary energy) and nitrogen (growth nutrient). Hyphae consume both types proportionally, and visualization blends colors to show both types.
-
-### ✅ 14b. **Realistic Nutrient Distribution** - COMPLETED
-
-Replaced simple radial gradient with organic patch-based distribution using multi-octave noise. Sugar patches are widespread (8-12 patches, 15-40 unit radius) like plant matter, while nitrogen patches are concentrated (3-6 patches, 8-25 unit radius) like animal waste or nitrogen-fixing zones. Background noise adds natural variation. Each reset generates a new distribution.
-
-### ✅ 15. **Hyphal Density Effects** - COMPLETED
-
-Slower growth in areas with many hyphae (competition).
-
-### ✅ 16. **Speed Controls** - COMPLETED
-
-Adjustable simulation speed with keyboard controls:
-- Left Arrow (←): Decrease speed (multiply by 1.5, minimum 0.1x)
-- Right Arrow (→): Increase speed (multiply by 1.5, maximum 10x)
-- 0: Reset speed to 1x
-
-Speed is displayed in the stats overlay and uses an accumulator for smooth fractional speeds. The simulation runs multiple steps per frame when speed > 1x, and uses frame accumulation for speeds < 1x.
-
-## 🔧 Code Structure Improvements
-
-### 1. Split into Modules - COMPLETED
-
-- `simulation.rs` - Core simulation logic
-- `hypha.rs` - Hypha struct and methods
-- `spore.rs` - Spore struct and methods
-- `nutrients.rs` - Nutrient grid and diffusion
-- `visualization.rs` - Drawing functions
-
-### ✅ 2. Configuration Struct - COMPLETED
-
-```rust
-pub struct SimulationConfig {
-    pub grid_size: usize,
-    pub cell_size: f32,
-    pub branch_prob: f32,
-    pub step_size: f32,
-    // ... all simulation parameters
-}
-```
-
-Implemented with `Default` trait for easy initialization. All configuration values are now centralized.
-
-### ✅ 3. State Management - COMPLETED
-
-```rust
-pub struct SimulationState {
-    pub nutrients: [[f32; GRID_SIZE]; GRID_SIZE],
-    pub obstacles: [[bool; GRID_SIZE]; GRID_SIZE],
-    pub hyphae: Vec<Hypha>,
-    pub spores: Vec<Spore>,
-    pub segments: Vec<Segment>,
-    pub connections: Vec<Connection>,
-    pub fruit_bodies: Vec<FruitBody>,
-    pub fruit_cooldown_timer: f32,
-    pub frame_index: u64,
-}
-
-pub struct Simulation {
-    pub state: SimulationState,
-    pub config: SimulationConfig,
-    pub paused: bool,
-    pub connections_visible: bool,
-}
-```
-
-State is now separated from configuration and control flags. `Simulation` uses `Deref`/`DerefMut` for convenient access.
-
-## 🎨 Visual Enhancements
-
-1. ✅ **Color gradients** based on energy/age (connections pulse + age fade)
-2. ✅ **Particle effects** when spores germinate
-3. ✅ **Pulsing** at anastomosis points
-4. ✅ **Depth cues** - older hyphae darker/more transparent
-5. ✅ **Minimap** showing overall network structure
-
-## 📊 Performance Optimizations
-
-1. ✅ **Spatial partitioning** for hyphae collision checks (uniform grid buckets)
-2. ✅ **Batch rendering** for segments (FPS-based decimation of draw calls)
-3. ✅ **LOD (Level of Detail)** - reduce detail when FPS drops (diffusion/frame skip, draw decimation)
-4. ✅ **Conditional updates** - only update visible areas (diffusion limited to hyphae bounding box)
-
-## 🧪 Scientific Accuracy
-
-1. ✅ **Chemotaxis** - more realistic gradient following (Sobel gradient, smoother steering)
-2. ✅ **Tropism** - response to different stimulations (global tropism vector bias)
-3. ✅ **Mycelial network topology** - proper graph structure (connections as graph; energy flow)
-4. ✅ **Resource allocation** - more realistic energy distribution (diffusive flow along connections)
+#### ✔ Light exposure (for surface mycelia)
+
+Some fungi avoid light; others tolerate it.
+
+Add:
+- shaded vs sunlit zones
+- slower growth in bright areas
+
+#### ✔ Contaminants / competitors
+
+Super cool idea:
+- Trichoderma competitor that steals nutrients
+- bacteria colonies
+- deadwood patches
+- toxic zones
+
+Your mycelium can respond by:
+- rerouting
+- walling off areas
+- speeding up growth in safer directions
+
+
+### 3. Network Resource Transport (More Realistic)
+
+You already have basic resource transport, but you can model:
+
+#### ✔ Pressure-based flow
+
+Nutrients flow from high concentration → low concentration along hyphal edges.
+
+Creates:
+- adaptive routing
+- reinforcement of key pathways
+- “highways” through the mycelium
+
+#### ✔ Carbon ↔ Nitrogen tradeoff
+
+Fungi balance two key nutrients.
+
+Add two nutrient types:
+- carbohydrates (from growth)
+- nitrogen (from soil)
+
+Tips require specific ratios to grow.
+
+#### ✔ Mycelial memory (hotspots remembered)
+
+Fungi remember where good food sources were.
+
+Implement:
+- pheromone-like soil markers
+- long-term nutrient trails
+
+This creates complex, intelligent routes.
+
+### 4. Visualization Enhancements
+
+These make the simulation stunning.
+
+#### ✔ Hyphal thickness variation
+
+Older hyphae become thicker (like real cords).
+A simple age-based line thickness makes the network look alive.
+
+#### ✔ Color-coded resource flows
+
+Use color or brightness pulses to show:
+- nutrient transport
+- spore release
+- weather impact
+- stress signals
+
+Looks incredible.
+
+#### ✔ Fruiting body animations
+
+Fruiting bodies:
+- grow slowly
+- darken
+- release spore clouds
+
+You can simulate spore dispersion with:
+
+- Perlin noise wind
+- particle systems
+- fading opacity
+
+### 5. Emergent + Evolution
+
+For research-grade or sandbox use.
+
+#### ✔ Gene-driven parameters
+
+Each fungal "species" has traits:
+- branching angle
+- decay resistance
+- weather tolerance
+- growth rate
+- spore size & number
+
+You can evolve species via:
+- mutation
+- selection
+- competition
+- hybridization
+
+This turns your sim into a digital evolution lab.
+
+#### ✔ Multiple species interacting
+
+This is huge.
+- two fungi racing toward the same nutrients
+- parasitic fungi
+- symbiotic networks connecting plants
+
+Imagine adding tree roots and simulating mycorrhizal exchange.
+
+### 6. Interactive / Sandbox Systems
+
+Good for demos, visualization, or researchers testing hypotheses.
+
+#### ✔ Click-to-add nutrients
+
+User sprinkles food → watch mycelium adapt.
+
+#### ✔ Click-to-add water / contaminants
+
+A small thermometer/humidity slider changes the global environment.
+
+#### ✔ Heatmap layers
+
+User can toggle:
+- nutrients
+- moisture
+- hyphal age
+- resource flow
+- growth probability

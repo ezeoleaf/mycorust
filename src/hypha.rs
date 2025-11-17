@@ -13,4 +13,6 @@ pub struct Hypha {
     pub strength: f32,        // Branch strength (affects growth rate)
     pub signal_received: f32, // Accumulated signals received
     pub last_nutrient_location: Option<(f32, f32)>, // Memory of last nutrient location
+    // Senescence: biological aging and death
+    pub senescence_factor: f32, // 0.0 = healthy, 1.0 = dying/dead (affects death probability and visualization)
 }

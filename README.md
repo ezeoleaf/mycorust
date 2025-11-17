@@ -59,6 +59,11 @@ The simulation can be tested without requiring a graphics context, making it CI/
 - Edge reflection with axis-correct bounce and a slight jitter.
 - Obstacle avoidance and hyphae-to-hyphae avoidance to reduce overlaps.
 - Energy model: tips consume nutrients locally and die when energy is depleted.
+- **Hyphal Senescence & Death**: Biological aging system where hyphae die based on:
+  - Low nutrient flow through connections
+  - Distance from main network (unsupported branches collapse)
+  - Extreme weather conditions (too hot/cold)
+  - Visual decay: brown/grey coloring for dying hyphae
 - Anastomosis: nearby hyphae connect; simple energy balancing along connections.
 - Trails persist and fade over time; old segments are removed to limit memory growth.
 - Live statistics overlay (Hyphae, Spores, Connections, Fruiting Bodies, Avg Energy, Speed, FPS, Weather).
@@ -91,6 +96,7 @@ The simulation can be tested without requiring a graphics context, making it CI/
   - Age-based coloring (young = white, old = dark)
   - Nutrient flow intensity visualization (green pulses)
   - Environmental stress visualization (red/orange for low energy, white/blue for high energy)
+  - **Senescence decay visualization**: Brown/grey coloring for dying hyphae (brown for early decay, grey for advanced decay)
   - Pulsing animations for resource movement and signaling
 - **Camera System**: Pan and zoom to explore the network at multiple scales (optional, disabled by default).
 - **Screenshot**: Capture high-resolution images of the simulation (P key).
@@ -440,6 +446,15 @@ let sim = Simulation::with_config(&mut rng, config);
 #### Energy
 - `energy_decay_rate: f32` — passive energy decay per step (default: 0.9985)
 - `min_energy_to_live: f32` — below this, hyphae die (default: 0.005)
+
+#### Hyphal Senescence & Death
+- `senescence_enabled: bool` — enable hyphal senescence and death system (default: true)
+- `senescence_base_probability: f32` — base death probability per timestep (0.0-1.0) (default: 0.00001)
+- `senescence_nutrient_flow_threshold: f32` — low nutrient flow threshold that increases death probability (default: 0.005)
+- `senescence_distance_threshold: f32` — distance from main network that increases death probability (default: 30.0)
+- `senescence_weather_extreme_threshold: f32` — weather temperature threshold for extreme conditions (default: 0.3)
+- `senescence_unsupported_collapse_distance: f32` — distance beyond which unsupported branches collapse (default: 50.0)
+- `senescence_min_age: f32` — minimum age before senescence applies, giving hyphae time to establish (default: 5.0)
 
 #### Networking
 - `anastomosis_distance: f32` — distance within which hyphae connect (default: 2.0)
