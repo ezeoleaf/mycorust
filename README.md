@@ -401,9 +401,9 @@ await fetch('http://localhost:8080/step?steps=1', { method: 'POST' });
 
 ### Screenshots
 
-<img width="791" height="787" alt="image" src="https://github.com/user-attachments/assets/7b6d543a-1bf9-4ed5-8ebc-1a50abeb231d" />
+<img width="793" height="797" alt="image" src="https://github.com/user-attachments/assets/7efaf73c-66f8-4376-b319-a34cdd6a5b81" />
 
-<img width="798" height="800" alt="image" src="https://github.com/user-attachments/assets/aaa66872-d5fc-463e-a803-447af60607a4" />
+<img width="636" height="655" alt="image" src="https://github.com/user-attachments/assets/df870878-a154-47b9-a918-fc552936c246" />
 
 ### Configuration
 
