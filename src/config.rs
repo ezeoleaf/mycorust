@@ -19,6 +19,11 @@ pub struct SimulationConfig {
     pub diffusion_rate: f32,
     pub spore_germination_threshold: f32,
     pub spore_max_age: f32,
+    // Carbon/Nitrogen ratio requirements
+    pub cn_ratio_required: f32, // Required C:N ratio for optimal growth (default: 10:1 = 10.0)
+    pub cn_ratio_tolerance: f32, // Tolerance around required ratio (default: 0.3 = 30%)
+    pub pressure_flow_enabled: bool, // Enable pressure-based nutrient flow along connections
+    pub nutrient_flow_rate: f32, // Rate of nutrient flow along connections (pressure-based)
     // Directional flow (water drags nutrients)
     pub flow_enabled: bool,  // Enable directional nutrient flow
     pub flow_strength: f32,  // Strength of directional flow (0.0-1.0)
@@ -31,6 +36,16 @@ pub struct SimulationConfig {
 
     // Obstacles
     pub obstacle_count: usize,
+    // Contaminants/Competitors
+    pub zones_enabled: bool,          // Enable contaminant/competitor zones
+    pub toxic_zone_count: usize,      // Number of toxic zones
+    pub competitor_zone_count: usize, // Number of competitor zones (Trichoderma-like)
+    pub deadwood_patch_count: usize,  // Number of deadwood patches
+    pub toxic_zone_radius: f32,       // Radius of toxic zones
+    pub competitor_zone_radius: f32,  // Radius of competitor zones
+    pub toxic_zone_damage_rate: f32,  // Energy damage per timestep in toxic zones
+    pub competitor_nutrient_consumption: f32, // Nutrient consumption rate for competitors
+    pub zone_growth_rate: f32,        // Rate at which zones grow over time
 
     // Energy
     pub energy_decay_rate: f32,
@@ -51,6 +66,12 @@ pub struct SimulationConfig {
 
     // Hyphae avoidance/density
     pub hyphae_avoidance_distance: f32,
+    // Mycelial Density + Self-Inhibition
+    pub density_inhibition_enabled: bool, // Enable density-based growth inhibition
+    pub density_map_resolution: usize,    // Resolution of density map (cells per grid unit)
+    pub density_inhibition_threshold: f32, // Density threshold above which growth is inhibited
+    pub density_inhibition_strength: f32, // How strongly density inhibits growth (0.0-1.0)
+    pub density_decay_rate: f32,          // Rate at which density map decays over time
 
     // Segments/trails
     pub max_segment_age: f32,
@@ -131,6 +152,11 @@ impl Default for SimulationConfig {
             diffusion_rate: 0.05,
             spore_germination_threshold: 0.6,
             spore_max_age: 5.0,
+            // Carbon/Nitrogen ratio requirements
+            cn_ratio_required: 10.0,     // 10:1 C:N ratio (typical for fungi)
+            cn_ratio_tolerance: 0.3,     // 30% tolerance (7:1 to 13:1 is acceptable)
+            pressure_flow_enabled: true, // Enable pressure-based nutrient flow
+            nutrient_flow_rate: 0.015,   // Rate of nutrient flow along connections
             // Directional flow (water drags nutrients)
             flow_enabled: true,
             flow_strength: 0.3,                          // 30% directional bias
@@ -139,8 +165,19 @@ impl Default for SimulationConfig {
             tropism_angle: std::f32::consts::FRAC_PI_4,
             tropism_strength: 0.01,
             obstacle_count: 300,
-            energy_decay_rate: 0.9985, // Slightly slower decay to allow hyphae to survive longer
-            min_energy_to_live: 0.005, // Lower threshold so hyphae can survive longer
+
+            // Contaminants/Competitors
+            zones_enabled: true,
+            toxic_zone_count: 5,
+            competitor_zone_count: 3,
+            deadwood_patch_count: 8,
+            toxic_zone_radius: 8.0,
+            competitor_zone_radius: 10.0,
+            toxic_zone_damage_rate: 0.01, // 1% energy loss per timestep
+            competitor_nutrient_consumption: 0.005, // Competitors consume nutrients
+            zone_growth_rate: 0.001,      // Zones grow slowly over time
+            energy_decay_rate: 0.9985,    // Slightly slower decay to allow hyphae to survive longer
+            min_energy_to_live: 0.005,    // Lower threshold so hyphae can survive longer
 
             // Hyphal Senescence & Death
             senescence_enabled: true,
@@ -154,6 +191,13 @@ impl Default for SimulationConfig {
             anastomosis_distance: 2.0,
             connection_flow_rate: 0.02,
             hyphae_avoidance_distance: 2.0,
+
+            // Mycelial Density + Self-Inhibition
+            density_inhibition_enabled: true,
+            density_map_resolution: 4, // 4x4 density cells per grid cell
+            density_inhibition_threshold: 3.0, // Inhibit when >3 hyphae in a region
+            density_inhibition_strength: 0.5, // 50% growth reduction at threshold
+            density_decay_rate: 0.99,  // Density decays 1% per frame
             max_segment_age: 10.0,
             segment_age_increment: 0.01,
             fruiting_min_hyphae: 12,

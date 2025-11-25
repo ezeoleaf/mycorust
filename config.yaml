@@ -23,6 +23,12 @@ nutrient_regen_rate: 0.004  # Rate of nutrient regeneration
 nutrient_regen_floor: 0.12  # Minimum nutrient level for regeneration
 nutrient_regen_samples: 120  # Number of samples for nutrient regeneration
 
+# Carbon/Nitrogen Ratio Requirements
+cn_ratio_required: 10.0  # Required C:N ratio for optimal growth (10:1)
+cn_ratio_tolerance: 0.3  # Tolerance around required ratio (30%)
+pressure_flow_enabled: true  # Enable pressure-based nutrient flow along connections
+nutrient_flow_rate: 0.015  # Rate of nutrient flow along connections
+
 # Directional Flow (water drags nutrients)
 flow_enabled: true  # Enable directional nutrient flow
 flow_strength: 0.3  # Strength of directional flow (0.0-1.0)
@@ -39,6 +45,13 @@ connection_flow_rate: 0.02  # Diffusive energy flow along connections
 
 # Avoidance
 hyphae_avoidance_distance: 2.0  # Hyphae turn away if next step is closer than this
+
+# Mycelial Density + Self-Inhibition
+density_inhibition_enabled: true  # Enable density-based growth inhibition
+density_map_resolution: 4  # Resolution of density map (cells per grid unit)
+density_inhibition_threshold: 3.0  # Density threshold above which growth is inhibited
+density_inhibition_strength: 0.5  # How strongly density inhibits growth (0.0-1.0)
+density_decay_rate: 0.99  # Rate at which density map decays over time
 
 # Trails
 max_segment_age: 10.0  # Maximum age before segments are removed
@@ -63,6 +76,17 @@ fruiting_failed_attempts_before_fallback: 3  # Failed attempts before using fall
 # Initialization
 initial_hyphae_count: 5  # Number of hyphae at simulation start
 obstacle_count: 300  # Number of obstacles in the grid
+
+# Contaminants/Competitors
+zones_enabled: true  # Enable contaminant/competitor zones
+toxic_zone_count: 5  # Number of toxic zones
+competitor_zone_count: 3  # Number of competitor zones (Trichoderma-like)
+deadwood_patch_count: 8  # Number of deadwood patches
+toxic_zone_radius: 8.0  # Radius of toxic zones
+competitor_zone_radius: 10.0  # Radius of competitor zones
+toxic_zone_damage_rate: 0.01  # Energy damage per timestep in toxic zones
+competitor_nutrient_consumption: 0.005  # Nutrient consumption rate for competitors
+zone_growth_rate: 0.001  # Rate at which zones grow over time
 
 # Network Intelligence: Signal Propagation
 signal_propagation_enabled: true  # Enable signal propagation

@@ -24,16 +24,18 @@ Implemented:
 
 This helps control exponential growth and makes the simulation more biologically realistic.
 
-#### ✔ Mycelial Density + Self-Inhibition
+#### ✔ Mycelial Density + Self-Inhibition (IMPLEMENTED)
 
 Fungi avoid overcrowding their own filaments.
 
-Add:
-- density map
-- inhibition when >X hyphae in a region
-- slow growth in already-exploited zones
+Implemented:
+- ✅ Density map - tracks hyphae density per region (configurable resolution)
+- ✅ Inhibition when >X hyphae in a region - growth slows when density exceeds threshold
+- ✅ Slow growth in already-exploited zones - density map decays over time but accumulates where hyphae are present
+- ✅ Configurable threshold, inhibition strength, and decay rate
+- ✅ Smooth density accumulation with distance-based weighting
 
-This makes the network very natural-looking.
+This makes the network very natural-looking by preventing excessive clustering and encouraging exploration of new areas.
 
 #### ✔ Anastomosis (Hyphal Fusions)
 
@@ -97,50 +99,57 @@ Add:
 - shaded vs sunlit zones
 - slower growth in bright areas
 
-#### ✔ Contaminants / competitors
+#### ✔ Contaminants / competitors (IMPLEMENTED)
 
 Super cool idea:
-- Trichoderma competitor that steals nutrients
-- bacteria colonies
-- deadwood patches
-- toxic zones
+- ✅ Trichoderma competitor that steals nutrients - competitor zones consume nutrients
+- ✅ Toxic zones - harm hyphae (reduce energy, increase senescence)
+- ✅ Deadwood patches - nutrient-rich areas
+- ✅ Zones grow over time and have configurable intensity
 
 Your mycelium can respond by:
-- rerouting
-- walling off areas
-- speeding up growth in safer directions
+- ✅ Rerouting - hyphae detect and avoid toxic/competitor zones
+- ✅ Zone avoidance - repulsion from dangerous zones influences growth direction
+- ✅ Visual feedback - zones are color-coded (red=toxic, yellow=competitor, brown=deadwood)
+
+This creates dynamic environmental challenges that make the simulation more interesting and realistic.
 
 
 ### 3. Network Resource Transport (More Realistic)
 
 You already have basic resource transport, but you can model:
 
-#### ✔ Pressure-based flow
+#### ✔ Pressure-based flow (IMPLEMENTED)
 
 Nutrients flow from high concentration → low concentration along hyphal edges.
 
-Creates:
-- adaptive routing
-- reinforcement of key pathways
-- “highways” through the mycelium
+Implemented:
+- ✅ Pressure-based nutrient flow along connections (carbon and nitrogen flow from high to low)
+- ✅ Adaptive routing - nutrients flow through efficient pathways
+- ✅ Reinforcement of key pathways - high-flow connections strengthen
+- ✅ "Highways" through the mycelium - strong connections form nutrient transport routes
+- ✅ Nutrient sharing when connections form (anastomosis)
 
-#### ✔ Carbon ↔ Nitrogen tradeoff
+#### ✔ Carbon ↔ Nitrogen tradeoff (IMPLEMENTED)
 
 Fungi balance two key nutrients.
 
-Add two nutrient types:
-- carbohydrates (from growth)
-- nitrogen (from soil)
+Implemented:
+- ✅ Two nutrient types: sugar (carbohydrates) and nitrogen
+- ✅ Separate storage of carbon and nitrogen in hyphae
+- ✅ C:N ratio requirements for optimal growth (default 10:1)
+- ✅ Growth efficiency decreases when ratio deviates from optimal
+- ✅ Tips require proper C:N ratios to grow effectively
 
-Tips require specific ratios to grow.
-
-#### ✔ Mycelial memory (hotspots remembered)
+#### ✔ Mycelial memory (hotspots remembered) (IMPLEMENTED)
 
 Fungi remember where good food sources were.
 
-Implement:
-- pheromone-like soil markers
-- long-term nutrient trails
+Implemented:
+- ✅ Pheromone-like soil markers - nutrient memory grid tracks discoveries
+- ✅ Long-term nutrient trails - memory decays over time but persists
+- ✅ Memory influences growth direction - hyphae return to productive areas
+- ✅ Visual memory overlay (purple) shows remembered locations
 
 This creates complex, intelligent routes.
 

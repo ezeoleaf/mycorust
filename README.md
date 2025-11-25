@@ -55,10 +55,18 @@ The simulation can be tested without requiring a graphics context, making it CI/
 #### Core Simulation
 - Nutrient field rendered as a brown→green heatmap (with diffusion over time). Realistic organic patch-based distribution with multiple nutrient types (sugar and nitrogen).
 - **Directional Nutrient Flow**: Water flow field that drags nutrients in a specific direction, creating anisotropic diffusion. Flow strength and direction are configurable, and rain increases flow strength. This produces beautiful emergent branching behavior as hyphae follow nutrient gradients that are shaped by water flow.
+- **Pressure-Based Nutrient Flow**: Nutrients (carbon and nitrogen) flow from high concentration to low concentration along hyphal connections, creating adaptive routing and reinforcing key pathways. This forms "highways" through the mycelium network.
+- **Carbon/Nitrogen Ratio Requirements**: Hyphae require specific C:N ratios (default 10:1) for optimal growth. Growth efficiency decreases when the ratio deviates from optimal, creating realistic nutrient balance constraints.
 - Hyphae growth: gradient following + small random wander.
 - Branching with configurable probability.
 - Edge reflection with axis-correct bounce and a slight jitter.
 - Obstacle avoidance and hyphae-to-hyphae avoidance to reduce overlaps.
+- **Mycelial Density + Self-Inhibition**: Fungi avoid overcrowding their own filaments. A density map tracks hyphae density in each region, and growth is inhibited when density exceeds a threshold. This makes the network look more natural by preventing excessive clustering.
+- **Contaminants/Competitors**: Environmental challenges that affect mycelium growth:
+  - **Toxic Zones**: Harm hyphae by reducing energy and increasing senescence
+  - **Competitor Zones**: Consume nutrients (like Trichoderma), competing with mycelium
+  - **Deadwood Patches**: Nutrient-rich areas that provide food sources
+  - Hyphae detect and avoid toxic/competitor zones, rerouting around dangerous areas
 - Energy model: tips consume nutrients locally and die when energy is depleted.
 - **Hyphal Senescence & Death**: Biological aging system where hyphae die based on:
   - Low nutrient flow through connections
@@ -450,6 +458,12 @@ let sim = Simulation::with_config(&mut rng, config);
 - `flow_direction: f32` — flow direction in radians (0 = right, π/2 = down) (default: π/4)
 - `flow_variation: f32` — random variation in flow direction per timestep (default: 0.1)
 
+#### Carbon/Nitrogen Ratio & Pressure-Based Flow
+- `cn_ratio_required: f32` — required C:N ratio for optimal growth (default: 10.0 = 10:1)
+- `cn_ratio_tolerance: f32` — tolerance around required ratio (default: 0.3 = 30%)
+- `pressure_flow_enabled: bool` — enable pressure-based nutrient flow along connections (default: true)
+- `nutrient_flow_rate: f32` — rate of nutrient flow along connections (default: 0.015)
+
 #### Energy
 - `energy_decay_rate: f32` — passive energy decay per step (default: 0.9985)
 - `min_energy_to_live: f32` — below this, hyphae die (default: 0.005)
@@ -469,6 +483,24 @@ let sim = Simulation::with_config(&mut rng, config);
 
 #### Avoidance
 - `hyphae_avoidance_distance: f32` — hyphae turn away if the next step is closer than this (default: 2.0)
+
+#### Contaminants/Competitors
+- `zones_enabled: bool` — enable contaminant/competitor zones (default: true)
+- `toxic_zone_count: usize` — number of toxic zones (default: 5)
+- `competitor_zone_count: usize` — number of competitor zones (Trichoderma-like) (default: 3)
+- `deadwood_patch_count: usize` — number of deadwood patches (default: 8)
+- `toxic_zone_radius: f32` — radius of toxic zones (default: 8.0)
+- `competitor_zone_radius: f32` — radius of competitor zones (default: 10.0)
+- `toxic_zone_damage_rate: f32` — energy damage per timestep in toxic zones (default: 0.01)
+- `competitor_nutrient_consumption: f32` — nutrient consumption rate for competitors (default: 0.005)
+- `zone_growth_rate: f32` — rate at which zones grow over time (default: 0.001)
+
+#### Mycelial Density + Self-Inhibition
+- `density_inhibition_enabled: bool` — enable density-based growth inhibition (default: true)
+- `density_map_resolution: usize` — resolution of density map (cells per grid unit) (default: 4)
+- `density_inhibition_threshold: f32` — density threshold above which growth is inhibited (default: 3.0)
+- `density_inhibition_strength: f32` — how strongly density inhibits growth (0.0-1.0) (default: 0.5)
+- `density_decay_rate: f32` — rate at which density map decays over time (default: 0.99)
 
 #### Trails
 - `max_segment_age: f32` — maximum age before segments are removed (default: 10.0)

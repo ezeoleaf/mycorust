@@ -10,7 +10,7 @@ use crate::config::SimulationConfig;
 use crate::hypha::Hypha;
 use crate::nutrients::{memory_gradient, nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
-use crate::types::{Connection, FruitBody, Segment};
+use crate::types::{Connection, FruitBody, Segment, Zone, ZoneType};
 use crate::weather::Weather;
 
 // Runtime flag to indicate if we're running in headless mode
@@ -79,6 +79,11 @@ pub struct SimulationState {
     // Water flow field (for directional nutrient transport)
     pub flow_velocity_x: Vec<Vec<f32>>, // Flow velocity in X direction
     pub flow_velocity_y: Vec<Vec<f32>>, // Flow velocity in Y direction
+    // Mycelial density map (for self-inhibition)
+    pub density_map: Vec<Vec<f32>>, // Density map: tracks hyphae density per region
+    pub density_map_size: usize,    // Size of density map (grid_size * density_map_resolution)
+    // Contaminants/competitors zones
+    pub zones: Vec<Vec<Zone>>, // Zone grid: toxic zones, competitors, deadwood patches
 }
 
 impl SimulationState {
@@ -109,6 +114,22 @@ impl SimulationState {
             weather: Weather::new(),
             flow_velocity_x: vec![vec![0.0f32; grid_size]; grid_size],
             flow_velocity_y: vec![vec![0.0f32; grid_size]; grid_size],
+            density_map_size: grid_size * config.density_map_resolution,
+            density_map: vec![
+                vec![0.0f32; grid_size * config.density_map_resolution];
+                grid_size * config.density_map_resolution
+            ],
+            zones: vec![
+                vec![
+                    Zone {
+                        zone_type: ZoneType::None,
+                        intensity: 0.0,
+                        age: 0.0,
+                    };
+                    grid_size
+                ];
+                grid_size
+            ],
         }
     }
 }
@@ -184,6 +205,72 @@ impl Simulation {
             state.obstacles[x][y] = true;
         }
 
+        // Initialize contaminant/competitor zones
+        if config.zones_enabled {
+            // Toxic zones
+            for _ in 0..config.toxic_zone_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = config.toxic_zone_radius;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Toxic,
+                    0.8,
+                    grid_size,
+                );
+            }
+
+            // Competitor zones
+            for _ in 0..config.competitor_zone_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = config.competitor_zone_radius;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Competitor,
+                    0.7,
+                    grid_size,
+                );
+            }
+
+            // Deadwood patches (nutrient-rich but may have mild effects)
+            for _ in 0..config.deadwood_patch_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = 6.0;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Deadwood,
+                    0.5,
+                    grid_size,
+                );
+                // Add nutrients to deadwood patches
+                for dx in -radius as isize..=radius as isize {
+                    for dy in -radius as isize..=radius as isize {
+                        let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                        if dist <= radius {
+                            let x = (center_x as isize + dx).max(0).min(grid_size as isize - 1)
+                                as usize;
+                            let y = (center_y as isize + dy).max(0).min(grid_size as isize - 1)
+                                as usize;
+                            let intensity = 1.0 - (dist / radius);
+                            state.nutrients.add_sugar(x, y, intensity * 0.3);
+                            state.nutrients.add_nitrogen(x, y, intensity * 0.2);
+                        }
+                    }
+                }
+            }
+        }
+
         // Initialize hyphae
         state.hyphae = Vec::with_capacity(config.initial_hyphae_count);
         for _ in 0..config.initial_hyphae_count {
@@ -203,6 +290,8 @@ impl Simulation {
                 signal_received: 0.0,
                 last_nutrient_location: None,
                 senescence_factor: 0.0,
+                carbon: 0.0,
+                nitrogen: 0.0,
             });
         }
 
@@ -251,6 +340,72 @@ impl Simulation {
             state.obstacles[x][y] = true;
         }
 
+        // Initialize contaminant/competitor zones
+        if config.zones_enabled {
+            // Toxic zones
+            for _ in 0..config.toxic_zone_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = config.toxic_zone_radius;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Toxic,
+                    0.8,
+                    grid_size,
+                );
+            }
+
+            // Competitor zones
+            for _ in 0..config.competitor_zone_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = config.competitor_zone_radius;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Competitor,
+                    0.7,
+                    grid_size,
+                );
+            }
+
+            // Deadwood patches (nutrient-rich but may have mild effects)
+            for _ in 0..config.deadwood_patch_count {
+                let center_x = rng.gen_range(0..grid_size);
+                let center_y = rng.gen_range(0..grid_size);
+                let radius = 6.0;
+                Self::create_zone(
+                    &mut state.zones,
+                    center_x,
+                    center_y,
+                    radius,
+                    ZoneType::Deadwood,
+                    0.5,
+                    grid_size,
+                );
+                // Add nutrients to deadwood patches
+                for dx in -radius as isize..=radius as isize {
+                    for dy in -radius as isize..=radius as isize {
+                        let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                        if dist <= radius {
+                            let x = (center_x as isize + dx).max(0).min(grid_size as isize - 1)
+                                as usize;
+                            let y = (center_y as isize + dy).max(0).min(grid_size as isize - 1)
+                                as usize;
+                            let intensity = 1.0 - (dist / radius);
+                            state.nutrients.add_sugar(x, y, intensity * 0.3);
+                            state.nutrients.add_nitrogen(x, y, intensity * 0.2);
+                        }
+                    }
+                }
+            }
+        }
+
         // Initialize hyphae
         state.hyphae = Vec::with_capacity(config.initial_hyphae_count);
         for _ in 0..config.initial_hyphae_count {
@@ -270,6 +425,8 @@ impl Simulation {
                 signal_received: 0.0,
                 last_nutrient_location: None,
                 senescence_factor: 0.0,
+                carbon: 0.0,
+                nitrogen: 0.0,
             });
         }
 
@@ -401,6 +558,34 @@ impl Simulation {
         }
     }
 
+    fn create_zone(
+        zones: &mut Vec<Vec<Zone>>,
+        center_x: usize,
+        center_y: usize,
+        radius: f32,
+        zone_type: ZoneType,
+        base_intensity: f32,
+        grid_size: usize,
+    ) {
+        let radius_sq = radius * radius;
+        for x in 0..grid_size {
+            for y in 0..grid_size {
+                let dx = x as f32 - center_x as f32;
+                let dy = y as f32 - center_y as f32;
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq <= radius_sq {
+                    let dist = dist_sq.sqrt();
+                    let intensity = base_intensity * (1.0 - (dist / radius).min(1.0));
+                    if intensity > zones[x][y].intensity {
+                        zones[x][y].zone_type = zone_type;
+                        zones[x][y].intensity = intensity;
+                        zones[x][y].age = 0.0;
+                    }
+                }
+            }
+        }
+    }
+
     pub fn toggle_pause(&mut self) {
         self.paused = !self.paused;
     }
@@ -488,6 +673,8 @@ impl Simulation {
             signal_received: 0.0,
             last_nutrient_location: None,
             senescence_factor: 0.0,
+            carbon: 0.0,
+            nitrogen: 0.0,
         });
     }
     pub fn clear_segments(&mut self) {
@@ -508,6 +695,8 @@ impl Simulation {
             signal_received: 0.0,
             last_nutrient_location: None,
             senescence_factor: 0.0,
+            carbon: 0.0,
+            nitrogen: 0.0,
         });
     }
     pub fn add_nutrient_patch(&mut self, gx: usize, gy: usize) {
@@ -828,6 +1017,53 @@ impl Simulation {
                     }
                 }
 
+                // Zone avoidance: detect nearby toxic/competitor zones and steer away
+                if self.config.zones_enabled && in_bounds(h.x, h.y, self.config.grid_size) {
+                    let xi = h.x as usize;
+                    let yi = h.y as usize;
+
+                    // Check surrounding zones for avoidance
+                    let detection_radius = 5.0;
+                    let mut zone_repulsion_x = 0.0;
+                    let mut zone_repulsion_y = 0.0;
+
+                    for dx in -2..=2 {
+                        for dy in -2..=2 {
+                            let check_x = (xi as isize + dx)
+                                .max(0)
+                                .min(self.config.grid_size as isize - 1)
+                                as usize;
+                            let check_y = (yi as isize + dy)
+                                .max(0)
+                                .min(self.config.grid_size as isize - 1)
+                                as usize;
+                            let check_zone = &self.state.zones[check_x][check_y];
+
+                            match check_zone.zone_type {
+                                ZoneType::Toxic | ZoneType::Competitor => {
+                                    let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                                    if dist < detection_radius && dist > 0.1 {
+                                        // Repulsion from zone (steer away)
+                                        let repulsion_strength =
+                                            check_zone.intensity / (dist * dist + 0.1);
+                                        zone_repulsion_x -=
+                                            (dx as f32 / dist) * repulsion_strength * 0.3;
+                                        zone_repulsion_y -=
+                                            (dy as f32 / dist) * repulsion_strength * 0.3;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    // Apply zone repulsion to gradient (hyphae avoid dangerous zones)
+                    if zone_repulsion_x != 0.0 || zone_repulsion_y != 0.0 {
+                        gx += zone_repulsion_x;
+                        gy += zone_repulsion_y;
+                    }
+                }
+
                 let grad_mag = (gx * gx + gy * gy).sqrt();
                 // Only apply gradient steering if gradient is significant (avoid noise from small gradients)
                 const MIN_GRADIENT_MAG: f32 = 0.08; // Threshold to ignore numerical noise (increased to avoid bias)
@@ -922,6 +1158,30 @@ impl Simulation {
                 }
                 let density_slow = 1.0 / (1.0 + 0.05 * neighbor_count);
 
+                // Mycelial Density + Self-Inhibition: Check density map for growth inhibition
+                let density_inhibition = if self.config.density_inhibition_enabled {
+                    let density_map_size = self.state.density_map_size;
+                    let density_x = ((h.x * self.config.density_map_resolution as f32) as usize)
+                        .min(density_map_size - 1);
+                    let density_y = ((h.y * self.config.density_map_resolution as f32) as usize)
+                        .min(density_map_size - 1);
+                    let local_density = self.state.density_map[density_x][density_y];
+
+                    if local_density > self.config.density_inhibition_threshold {
+                        // Calculate inhibition: stronger as density exceeds threshold
+                        let excess_density =
+                            local_density - self.config.density_inhibition_threshold;
+                        let inhibition_factor =
+                            (excess_density / self.config.density_inhibition_threshold).min(1.0)
+                                * self.config.density_inhibition_strength;
+                        1.0 - inhibition_factor // Reduce growth by inhibition factor
+                    } else {
+                        1.0 // No inhibition below threshold
+                    }
+                } else {
+                    1.0
+                };
+
                 // Network Intelligence: Strength affects growth rate
                 let strength_multiplier = if self.config.adaptive_growth_enabled {
                     h.strength
@@ -937,6 +1197,23 @@ impl Simulation {
                         1.0
                     };
 
+                // Carbon/Nitrogen ratio: growth efficiency based on C:N ratio
+                let cn_ratio_multiplier = if h.nitrogen > 0.001 {
+                    let cn_ratio = h.carbon / h.nitrogen;
+                    let ratio_diff = (cn_ratio - self.config.cn_ratio_required).abs();
+                    let tolerance = self.config.cn_ratio_required * self.config.cn_ratio_tolerance;
+                    if ratio_diff <= tolerance {
+                        1.0 // Optimal ratio - full growth
+                    } else {
+                        // Growth slows when ratio is off
+                        let excess = (ratio_diff - tolerance).max(0.0);
+                        (1.0 - (excess / (self.config.cn_ratio_required * 2.0))).max(0.5)
+                        // At least 50% growth
+                    }
+                } else {
+                    0.7 // Reduced growth if no nitrogen
+                };
+
                 if too_close {
                     h.angle += rng.gen_range(-0.5..0.5);
                 }
@@ -944,8 +1221,10 @@ impl Simulation {
                 // Apply all growth multipliers
                 let final_step_size = self.config.step_size
                     * density_slow
+                    * density_inhibition
                     * strength_multiplier
-                    * weather_growth_multiplier;
+                    * weather_growth_multiplier
+                    * cn_ratio_multiplier;
                 h.x += h.angle.cos() * final_step_size;
                 h.y += h.angle.sin() * final_step_size;
 
@@ -1016,17 +1295,97 @@ impl Simulation {
 
                 let xi = h.x as usize;
                 let yi = h.y as usize;
+
+                // Zone effects: toxic zones damage hyphae, competitors consume nutrients
+                if self.config.zones_enabled && in_bounds(h.x, h.y, self.config.grid_size) {
+                    let zone = &self.state.zones[xi][yi];
+                    match zone.zone_type {
+                        ZoneType::Toxic => {
+                            // Toxic zones damage hyphae (reduce energy)
+                            let damage = self.config.toxic_zone_damage_rate * zone.intensity;
+                            h.energy = (h.energy - damage).max(0.0);
+                            // Increase senescence in toxic zones
+                            h.senescence_factor = (h.senescence_factor + damage * 2.0).min(1.0);
+                        }
+                        ZoneType::Competitor => {
+                            // Competitor zones consume nutrients (reduce available nutrients)
+                            // This is handled in nutrient consumption below
+                        }
+                        ZoneType::Deadwood => {
+                            // Deadwood patches are nutrient-rich, no negative effects
+                        }
+                        ZoneType::None => {}
+                    }
+                }
+
                 // Consume both sugar (primary) and nitrogen (secondary)
-                let sugar = self.state.nutrients.sugar[xi][yi];
-                let nitrogen = self.state.nutrients.nitrogen[xi][yi];
+                let mut sugar = self.state.nutrients.sugar[xi][yi];
+                let mut nitrogen = self.state.nutrients.nitrogen[xi][yi];
+
+                // Competitors consume nutrients before hyphae can
+                if self.config.zones_enabled && in_bounds(h.x, h.y, self.config.grid_size) {
+                    let zone = &self.state.zones[xi][yi];
+                    if zone.zone_type == ZoneType::Competitor {
+                        let consumption =
+                            self.config.competitor_nutrient_consumption * zone.intensity;
+                        sugar = (sugar - consumption).max(0.0);
+                        nitrogen = (nitrogen - consumption * 0.7).max(0.0);
+                    }
+                }
+
+                // Consume nutrients and store carbon/nitrogen separately
                 let total_nutrient = sugar + nitrogen * 0.5; // Nitrogen is less energy-dense
                 if total_nutrient > 0.001 {
                     let absorbed = total_nutrient.min(self.config.nutrient_decay);
-                    h.energy = (h.energy + absorbed).min(1.0);
+
+                    // Consume proportionally from both types and store separately
+                    let sugar_absorb = if sugar > 0.0 {
+                        (absorbed * sugar / total_nutrient).min(sugar)
+                    } else {
+                        0.0
+                    };
+                    let nitrogen_absorb = if nitrogen > 0.0 {
+                        (absorbed * nitrogen * 0.5 / total_nutrient).min(nitrogen)
+                    } else {
+                        0.0
+                    };
+
+                    // Store carbon and nitrogen in hypha
+                    h.carbon = (h.carbon + sugar_absorb).min(1.0);
+                    h.nitrogen = (h.nitrogen + nitrogen_absorb).min(1.0);
+
+                    // Convert stored nutrients to energy based on C:N ratio
+                    // Optimal growth requires proper C:N ratio
+                    let cn_ratio = if h.nitrogen > 0.001 {
+                        h.carbon / h.nitrogen
+                    } else {
+                        1000.0 // Very high ratio if no nitrogen
+                    };
+
+                    // Calculate growth efficiency based on C:N ratio
+                    let ratio_diff = (cn_ratio - self.config.cn_ratio_required).abs();
+                    let tolerance = self.config.cn_ratio_required * self.config.cn_ratio_tolerance;
+                    let efficiency = if ratio_diff <= tolerance {
+                        1.0 // Optimal ratio
+                    } else {
+                        // Efficiency decreases as ratio deviates from optimal
+                        let excess = (ratio_diff - tolerance).max(0.0);
+                        (1.0 - (excess / (self.config.cn_ratio_required * 2.0))).max(0.3)
+                    };
+
+                    // Convert nutrients to energy with efficiency penalty for poor ratios
+                    let energy_gain = absorbed * efficiency;
+                    h.energy = (h.energy + energy_gain).min(1.0);
+
+                    // Consume nutrients from grid
+                    if sugar > 0.0 {
+                        self.state.nutrients.sugar[xi][yi] -= sugar_absorb;
+                    }
+                    if nitrogen > 0.0 {
+                        self.state.nutrients.nitrogen[xi][yi] -= nitrogen_absorb;
+                    }
 
                     // Network Intelligence: Update memory when nutrients are found
-                    // Note: Use a lower threshold (0.001) since absorbed can be as low as nutrient_decay (0.01)
-                    // and we want to record even small nutrient discoveries
                     if self.config.memory_enabled && absorbed > 0.001 {
                         let memory_update = absorbed * self.config.memory_update_strength;
                         self.state.nutrient_memory[xi][yi] =
@@ -1044,17 +1403,6 @@ impl Simulation {
                         {
                             h.signal_received = 1.0; // Trigger signal at this hypha
                         }
-                    }
-
-                    // Consume proportionally from both types
-                    if sugar > 0.0 {
-                        let sugar_absorb = (absorbed * sugar / total_nutrient).min(sugar);
-                        self.state.nutrients.sugar[xi][yi] -= sugar_absorb;
-                    }
-                    if nitrogen > 0.0 {
-                        let nitrogen_absorb =
-                            (absorbed * nitrogen * 0.5 / total_nutrient).min(nitrogen);
-                        self.state.nutrients.nitrogen[xi][yi] -= nitrogen_absorb;
                     }
                 }
 
@@ -1299,8 +1647,12 @@ impl Simulation {
                             signal_received: 0.0,
                             last_nutrient_location: h.last_nutrient_location,
                             senescence_factor: h.senescence_factor * 0.5, // Inherit some senescence
+                            carbon: h.carbon * 0.5, // Share nutrients with branch
+                            nitrogen: h.nitrogen * 0.5,
                         });
                         h.energy *= 0.5;
+                        h.carbon *= 0.5; // Share nutrients
+                        h.nitrogen *= 0.5;
                     }
                 }
 
@@ -1337,6 +1689,27 @@ impl Simulation {
                         (self.state.hyphae[from].energy - amount).clamp(0.0, 1.0);
                     self.state.hyphae[to].energy =
                         (self.state.hyphae[to].energy + amount).clamp(0.0, 1.0);
+
+                    // Pressure-based nutrient flow: share nutrients with parent
+                    if self.config.pressure_flow_enabled {
+                        // Carbon balance
+                        let carbon_diff =
+                            self.state.hyphae[from].carbon - self.state.hyphae[to].carbon;
+                        let carbon_share = carbon_diff * 0.05; // Small transfer
+                        self.state.hyphae[from].carbon =
+                            (self.state.hyphae[from].carbon - carbon_share).clamp(0.0, 1.0);
+                        self.state.hyphae[to].carbon =
+                            (self.state.hyphae[to].carbon + carbon_share).clamp(0.0, 1.0);
+
+                        // Nitrogen balance
+                        let nitrogen_diff =
+                            self.state.hyphae[from].nitrogen - self.state.hyphae[to].nitrogen;
+                        let nitrogen_share = nitrogen_diff * 0.05; // Small transfer
+                        self.state.hyphae[from].nitrogen =
+                            (self.state.hyphae[from].nitrogen - nitrogen_share).clamp(0.0, 1.0);
+                        self.state.hyphae[to].nitrogen =
+                            (self.state.hyphae[to].nitrogen + nitrogen_share).clamp(0.0, 1.0);
+                    }
                 }
             }
 
@@ -1554,6 +1927,26 @@ impl Simulation {
                     (self.state.hyphae[i].energy - transfer).clamp(0.0, 1.0);
                 self.state.hyphae[j].energy =
                     (self.state.hyphae[j].energy + transfer).clamp(0.0, 1.0);
+
+                // Pressure-based nutrient flow: share nutrients when connecting
+                if self.config.pressure_flow_enabled {
+                    // Carbon balance
+                    let carbon_diff = self.state.hyphae[i].carbon - self.state.hyphae[j].carbon;
+                    let carbon_share = carbon_diff * 0.1; // Share 10% of difference
+                    self.state.hyphae[i].carbon =
+                        (self.state.hyphae[i].carbon - carbon_share).clamp(0.0, 1.0);
+                    self.state.hyphae[j].carbon =
+                        (self.state.hyphae[j].carbon + carbon_share).clamp(0.0, 1.0);
+
+                    // Nitrogen balance
+                    let nitrogen_diff =
+                        self.state.hyphae[i].nitrogen - self.state.hyphae[j].nitrogen;
+                    let nitrogen_share = nitrogen_diff * 0.1; // Share 10% of difference
+                    self.state.hyphae[i].nitrogen =
+                        (self.state.hyphae[i].nitrogen - nitrogen_share).clamp(0.0, 1.0);
+                    self.state.hyphae[j].nitrogen =
+                        (self.state.hyphae[j].nitrogen + nitrogen_share).clamp(0.0, 1.0);
+                }
             }
 
             // Clean up dead connections
@@ -1616,6 +2009,23 @@ impl Simulation {
             let flow = (base_flow * c.strength).clamp(-0.02, 0.02);
             h1.energy = (h1.energy - flow).clamp(0.0, 1.0);
             h2.energy = (h2.energy + flow).clamp(0.0, 1.0);
+
+            // Pressure-based nutrient flow: nutrients flow from high to low concentration
+            if self.config.pressure_flow_enabled {
+                // Carbon flow (pressure-based: high → low)
+                let carbon_diff = h1.carbon - h2.carbon;
+                let carbon_flow =
+                    (carbon_diff * self.config.nutrient_flow_rate * c.strength).clamp(-0.01, 0.01);
+                h1.carbon = (h1.carbon - carbon_flow).clamp(0.0, 1.0);
+                h2.carbon = (h2.carbon + carbon_flow).clamp(0.0, 1.0);
+
+                // Nitrogen flow (pressure-based: high → low)
+                let nitrogen_diff = h1.nitrogen - h2.nitrogen;
+                let nitrogen_flow = (nitrogen_diff * self.config.nutrient_flow_rate * c.strength)
+                    .clamp(-0.01, 0.01);
+                h1.nitrogen = (h1.nitrogen - nitrogen_flow).clamp(0.0, 1.0);
+                h2.nitrogen = (h2.nitrogen + nitrogen_flow).clamp(0.0, 1.0);
+            }
 
             // Network Intelligence: Track flow for reinforcement learning
             let abs_flow = flow.abs();
@@ -1728,6 +2138,71 @@ impl Simulation {
                     // Simple uniform flow field (could be made spatially varying later)
                     self.state.flow_velocity_x[x][y] = flow_vx;
                     self.state.flow_velocity_y[x][y] = flow_vy;
+                }
+            }
+        }
+
+        // Update zones: grow zones over time, competitors consume nutrients
+        if self.config.zones_enabled {
+            for x in 0..self.config.grid_size {
+                for y in 0..self.config.grid_size {
+                    let zone = &mut self.state.zones[x][y];
+                    if zone.zone_type != ZoneType::None {
+                        // Zones grow slowly over time
+                        zone.age += 0.01;
+                        if zone.intensity < 1.0 {
+                            zone.intensity =
+                                (zone.intensity + self.config.zone_growth_rate).min(1.0);
+                        }
+
+                        // Competitors consume nutrients in their zone
+                        if zone.zone_type == ZoneType::Competitor {
+                            let consumption =
+                                self.config.competitor_nutrient_consumption * zone.intensity;
+                            self.state.nutrients.sugar[x][y] =
+                                (self.state.nutrients.sugar[x][y] - consumption).max(0.0);
+                            self.state.nutrients.nitrogen[x][y] =
+                                (self.state.nutrients.nitrogen[x][y] - consumption * 0.7).max(0.0);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Mycelial Density + Self-Inhibition: Update density map
+        if self.config.density_inhibition_enabled {
+            // Decay density map over time
+            let decay_rate = self.config.density_decay_rate;
+            for x in 0..self.state.density_map_size {
+                for y in 0..self.state.density_map_size {
+                    self.state.density_map[x][y] *= decay_rate;
+                }
+            }
+
+            // Add density based on current hyphae positions
+            let density_increment = 1.0; // Amount of density added per hypha
+            for h in &self.state.hyphae {
+                if !h.alive {
+                    continue;
+                }
+                let density_x = ((h.x * self.config.density_map_resolution as f32) as usize)
+                    .min(self.state.density_map_size - 1);
+                let density_y = ((h.y * self.config.density_map_resolution as f32) as usize)
+                    .min(self.state.density_map_size - 1);
+
+                // Add density at hypha position (with some smoothing to nearby cells)
+                let radius = 1; // Smooth over 1 cell radius
+                for dx in -(radius as isize)..=(radius as isize) {
+                    for dy in -(radius as isize)..=(radius as isize) {
+                        let nx = (density_x as isize + dx).max(0) as usize;
+                        let ny = (density_y as isize + dy).max(0) as usize;
+                        if nx < self.state.density_map_size && ny < self.state.density_map_size {
+                            // Weight decreases with distance
+                            let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                            let weight = if dist < 0.1 { 1.0 } else { 1.0 / (1.0 + dist) };
+                            self.state.density_map[nx][ny] += density_increment * weight;
+                        }
+                    }
                 }
             }
         }
@@ -1923,6 +2398,8 @@ impl Simulation {
                     signal_received: 0.0,
                     last_nutrient_location: Some((spore.x, spore.y)), // Remember where we germinated
                     senescence_factor: 0.0,
+                    carbon: 0.0,
+                    nitrogen: 0.0,
                 });
                 spore.alive = false;
                 // Particle burst at germination (visualization only - not used in tests)

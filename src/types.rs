@@ -39,3 +39,19 @@ pub struct FruitBody {
     pub released_spores: bool,
     pub next_spore_release_age: f32,
 }
+
+// Zone types for contaminants/competitors
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ZoneType {
+    None,           // No zone
+    Toxic,          // Toxic zone - harms hyphae
+    Competitor,     // Competitor zone - consumes nutrients (like Trichoderma)
+    Deadwood,       // Deadwood patch - nutrient-rich but may have mild effects
+}
+
+#[derive(Clone)]
+pub struct Zone {
+    pub zone_type: ZoneType,
+    pub intensity: f32, // Intensity/strength of the zone (0.0-1.0)
+    pub age: f32,       // Age of the zone (for growth/decay)
+}

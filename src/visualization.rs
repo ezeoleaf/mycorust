@@ -55,6 +55,33 @@ pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool, config: &S
     }
 }
 
+pub fn draw_zones(zones: &[Vec<crate::types::Zone>], config: &SimulationConfig) {
+    use crate::types::ZoneType;
+    let cell_size = config.cell_size;
+
+    for x in 0..zones.len() {
+        for y in 0..zones[x].len() {
+            let zone = &zones[x][y];
+            if zone.zone_type == ZoneType::None {
+                continue;
+            }
+
+            let px = x as f32 * cell_size;
+            let py = y as f32 * cell_size;
+            let alpha = zone.intensity * 0.3; // Semi-transparent
+
+            let color = match zone.zone_type {
+                ZoneType::Toxic => Color::new(1.0, 0.2, 0.2, alpha), // Red for toxic
+                ZoneType::Competitor => Color::new(0.8, 0.8, 0.2, alpha), // Yellow for competitors
+                ZoneType::Deadwood => Color::new(0.4, 0.3, 0.2, alpha), // Brown for deadwood
+                ZoneType::None => continue,
+            };
+
+            draw_rectangle(px, py, cell_size, cell_size, color);
+        }
+    }
+}
+
 pub fn draw_obstacles(obstacles: &[Vec<bool>], config: &SimulationConfig) {
     let grid_size = config.grid_size;
     let cell_size = config.cell_size;

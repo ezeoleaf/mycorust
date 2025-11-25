@@ -30,6 +30,8 @@ pub struct HyphaData {
     pub age: f32,
     pub strength: f32,
     pub senescence_factor: f32,
+    pub carbon: f32,
+    pub nitrogen: f32,
 }
 
 #[derive(Serialize, Clone)]
@@ -153,6 +155,8 @@ fn simulation_to_response(sim: &Simulation) -> SimulationStateResponse {
                 age: h.age,
                 strength: h.strength,
                 senescence_factor: h.senescence_factor,
+                carbon: h.carbon,
+                nitrogen: h.nitrogen,
             })
             .collect(),
         spores: sim

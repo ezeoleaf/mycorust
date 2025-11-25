@@ -97,7 +97,7 @@ async fn ui_main(config: SimulationConfig) {
     use visualization::{
         draw_connections, draw_fruit_bodies, draw_help_popup, draw_hyphae_enhanced,
         draw_memory_overlay, draw_minimap, draw_nutrients, draw_obstacles, draw_segments,
-        draw_stats_and_help,
+        draw_stats_and_help, draw_zones,
     };
 
     let mut rng = thread_rng();
@@ -126,6 +126,11 @@ async fn ui_main(config: SimulationConfig) {
 
         // Draw obstacles
         draw_obstacles(&sim.state.obstacles, &sim.config);
+
+        // Draw zones (contaminants/competitors)
+        if sim.config.zones_enabled {
+            draw_zones(&sim.state.zones, &sim.config);
+        }
 
         // Redraw all past segments to keep trails visible (with fading)
         // Enhanced: Age-based coloring (young=white, old=dark)

@@ -15,4 +15,7 @@ pub struct Hypha {
     pub last_nutrient_location: Option<(f32, f32)>, // Memory of last nutrient location
     // Senescence: biological aging and death
     pub senescence_factor: f32, // 0.0 = healthy, 1.0 = dying/dead (affects death probability and visualization)
+    // Nutrient storage (for pressure-based flow)
+    pub carbon: f32,   // Stored carbon (from sugar/carbohydrates)
+    pub nitrogen: f32, // Stored nitrogen
 }
