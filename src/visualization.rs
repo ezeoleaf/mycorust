@@ -25,6 +25,186 @@ pub fn draw_nutrients(nutrients: &NutrientGrid, config: &SimulationConfig) {
     }
 }
 
+// Heatmap: Draw moisture overlay
+pub fn draw_heatmap_moisture(moisture: &[Vec<f32>], config: &SimulationConfig) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+    for x in 0..grid_size {
+        for y in 0..grid_size {
+            let m = moisture[x][y];
+            // Blue gradient: dark blue (dry) to light blue (wet)
+            let color = Color::new(0.0, 0.3, 0.8, m * 0.6);
+            draw_rectangle(
+                x as f32 * cell_size,
+                y as f32 * cell_size,
+                cell_size,
+                cell_size,
+                color,
+            );
+        }
+    }
+}
+
+// Heatmap: Draw hyphal age overlay
+pub fn draw_heatmap_age(hyphae: &[Hypha], config: &SimulationConfig) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+    let mut age_map = vec![vec![0.0f32; grid_size]; grid_size];
+    let mut count_map = vec![vec![0u32; grid_size]; grid_size];
+
+    // Accumulate age values per cell
+    for h in hyphae.iter().filter(|h| h.alive) {
+        let xi = h.x as usize;
+        let yi = h.y as usize;
+        if xi < grid_size && yi < grid_size {
+            age_map[xi][yi] += h.age;
+            count_map[xi][yi] += 1;
+        }
+    }
+
+    // Draw average age per cell
+    for x in 0..grid_size {
+        for y in 0..grid_size {
+            if count_map[x][y] > 0 {
+                let avg_age = age_map[x][y] / count_map[x][y] as f32;
+                // Normalize age (assuming max age around 100)
+                let normalized = (avg_age / 100.0).min(1.0);
+                // Green to yellow to red gradient (young to old)
+                let color = if normalized < 0.5 {
+                    // Green to yellow
+                    Color::new(0.0 + normalized * 2.0, 0.8, 0.0, normalized * 0.6)
+                } else {
+                    // Yellow to red
+                    Color::new(1.0, 0.8 - (normalized - 0.5) * 1.6, 0.0, normalized * 0.6)
+                };
+                draw_rectangle(
+                    x as f32 * cell_size,
+                    y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+// Heatmap: Draw resource flow overlay
+pub fn draw_heatmap_flow(
+    _connections: &[Connection],
+    hyphae: &[Hypha],
+    flow_cache: &[f32],
+    config: &SimulationConfig,
+) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+    let mut flow_map = vec![vec![0.0f32; grid_size]; grid_size];
+
+    // Accumulate flow values per cell
+    for (idx, h) in hyphae.iter().enumerate().filter(|(_, h)| h.alive) {
+        let xi = h.x as usize;
+        let yi = h.y as usize;
+        if xi < grid_size && yi < grid_size {
+            let flow = if idx < flow_cache.len() {
+                flow_cache[idx]
+            } else {
+                0.0
+            };
+            flow_map[xi][yi] += flow;
+        }
+    }
+
+    // Draw flow intensity
+    for x in 0..grid_size {
+        for y in 0..grid_size {
+            let flow = flow_map[x][y];
+            if flow > 0.01 {
+                // Normalize flow (assuming max around 1.0)
+                let normalized = (flow * 10.0).min(1.0);
+                // Cyan to white gradient (low to high flow)
+                let color = Color::new(
+                    0.0 + normalized * 0.5,
+                    0.8 + normalized * 0.2,
+                    1.0,
+                    normalized * 0.7,
+                );
+                draw_rectangle(
+                    x as f32 * cell_size,
+                    y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
+                    color,
+                );
+            }
+        }
+    }
+}
+
+// Heatmap: Draw growth probability overlay
+pub fn draw_heatmap_growth(
+    _hyphae: &[Hypha],
+    nutrients: &NutrientGrid,
+    moisture: &[Vec<f32>],
+    light_exposure: &[Vec<f32>],
+    config: &SimulationConfig,
+) {
+    let grid_size = config.grid_size;
+    let cell_size = config.cell_size;
+
+    for x in 0..grid_size {
+        for y in 0..grid_size {
+            // Calculate growth probability based on multiple factors
+            let sugar = nutrients.sugar[x][y];
+            let nitrogen = nutrients.nitrogen[x][y];
+            let total_nutrient = sugar + nitrogen * 0.5;
+
+            // Moisture factor
+            let moisture_factor = if config.soil_moisture_enabled {
+                let m = moisture[x][y];
+                if m < 0.3 {
+                    0.4 + (m / 0.3) * 0.4
+                } else if m <= 0.8 {
+                    1.0
+                } else {
+                    1.0 - (m - 0.8) / 0.2 * 0.3
+                }
+            } else {
+                1.0
+            };
+
+            // Light factor
+            let light_factor = if config.light_exposure_enabled {
+                let light = light_exposure[x][y];
+                1.0 - (light * config.light_growth_penalty)
+            } else {
+                1.0
+            };
+
+            // Combined growth probability
+            let growth_prob = total_nutrient * moisture_factor * light_factor;
+
+            if growth_prob > 0.01 {
+                // Normalize to 0-1
+                let normalized = growth_prob.min(1.0);
+                // Purple to pink gradient (low to high growth probability)
+                let color = Color::new(
+                    0.8 + normalized * 0.2,
+                    0.2 + normalized * 0.3,
+                    0.6 + normalized * 0.4,
+                    normalized * 0.6,
+                );
+                draw_rectangle(
+                    x as f32 * cell_size,
+                    y as f32 * cell_size,
+                    cell_size,
+                    cell_size,
+                    color,
+                );
+            }
+        }
+    }
+}
+
 // Network Intelligence: Draw memory overlay (subtle purple/blue tint)
 pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool, config: &SimulationConfig) {
     if !memory_visible {

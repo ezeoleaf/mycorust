@@ -116,6 +116,24 @@ weather_enabled: true  # Enable weather system
 weather_affects_growth: true  # Weather affects growth rate
 weather_affects_energy: true  # Weather affects energy consumption
 
+# Seasonal Cycles
+seasonal_cycles_enabled: true  # Enable seasonal temperature/humidity cycles
+
+# Soil Moisture System
+soil_moisture_enabled: true  # Enable soil moisture grid
+moisture_diffusion_rate: 0.02  # Rate of moisture diffusion
+moisture_decay_rate: 0.999  # Rate of moisture evaporation
+moisture_rain_gain: 0.05  # Moisture gain from rain
+moisture_growth_multiplier: 0.5  # How much moisture affects growth
+moisture_branching_multiplier: 0.3  # How much moisture affects branching
+moisture_nutrient_multiplier: 0.4  # How much moisture affects nutrient availability
+
+# Light Exposure System
+light_exposure_enabled: true  # Enable light exposure grid
+light_growth_penalty: 0.4  # Growth penalty in bright areas (0.0-1.0)
+shaded_zone_count: 8  # Number of shaded zones
+sunlit_zone_count: 5  # Number of sunlit zones
+
 # Fusion
 fusion_enabled: true  # Enable fusion
 fusion_distance: 1.0  # Distance threshold for fusion (should be < anastomosis_distance)

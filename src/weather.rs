@@ -4,6 +4,14 @@
 use ::rand as external_rand;
 use external_rand::Rng;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Season {
+    Spring,
+    Summer,
+    Autumn,
+    Winter,
+}
+
 /// Weather conditions that affect mycelium growth
 #[derive(Clone, Debug)]
 pub struct Weather {
@@ -15,6 +23,10 @@ pub struct Weather {
     pub rain: f32,
     // Time accumulator for weather patterns
     pub time: f32,
+    // Seasonal cycle
+    pub season: Season,
+    pub season_time: f32, // Time within current season (0.0-1.0)
+    pub seasonal_cycle_enabled: bool,
 }
 
 impl Weather {
@@ -24,34 +36,115 @@ impl Weather {
             humidity: 0.65,    // Start at good humidity (optimal is 0.7-0.9)
             rain: 0.0,         // No rain initially
             time: 0.0,
+            season: Season::Spring,
+            season_time: 0.0,
+            seasonal_cycle_enabled: true,
+        }
+    }
+    
+    /// Get current season based on time
+    pub fn get_season(&self) -> Season {
+        if !self.seasonal_cycle_enabled {
+            return self.season;
+        }
+        // One full year cycle = 4 seasons
+        // Each season lasts 1/4 of the cycle
+        let cycle_pos = (self.time % 4.0) / 4.0;
+        if cycle_pos < 0.25 {
+            Season::Spring
+        } else if cycle_pos < 0.5 {
+            Season::Summer
+        } else if cycle_pos < 0.75 {
+            Season::Autumn
+        } else {
+            Season::Winter
+        }
+    }
+    
+    /// Get fruiting multiplier based on season
+    /// Autumn = maximum fruiting, Spring = moderate, Summer/Winter = low
+    pub fn fruiting_multiplier(&self) -> f32 {
+        if !self.seasonal_cycle_enabled {
+            return 1.0;
+        }
+        match self.get_season() {
+            Season::Spring => 0.6,  // Moderate fruiting
+            Season::Summer => 0.3,  // Low fruiting (drought stress)
+            Season::Autumn => 1.5,  // Maximum fruiting
+            Season::Winter => 0.2,  // Very low fruiting (dormancy)
         }
     }
 
     /// Update weather over time (simulates natural weather patterns)
     pub fn update(&mut self, dt: f32, rng: &mut impl Rng) {
         self.time += dt;
+        
+        // Update season
+        self.season = self.get_season();
+        let cycle_pos = (self.time % 4.0) / 4.0;
+        self.season_time = if cycle_pos < 0.25 {
+            cycle_pos / 0.25
+        } else if cycle_pos < 0.5 {
+            (cycle_pos - 0.25) / 0.25
+        } else if cycle_pos < 0.75 {
+            (cycle_pos - 0.5) / 0.25
+        } else {
+            (cycle_pos - 0.75) / 0.25
+        };
 
-        // Temperature: oscillates with day/night cycle and random variations
-        // Slower, more gradual changes for realistic weather
-        // Keep temperature more stable and in optimal range most of the time
-        let day_night_cycle = (self.time * 0.03).sin() * 0.1 + 0.85; // Base temperature (near-optimal, smaller swings)
-        let random_variation = (rng.gen::<f32>() - 0.5) * 0.03; // Smaller random fluctuations
+        // Seasonal temperature curve
+        let seasonal_temp = if self.seasonal_cycle_enabled {
+            match self.season {
+                Season::Spring => 0.7 + self.season_time * 0.3, // Warming up: 0.7 -> 1.0
+                Season::Summer => 1.0 + self.season_time * 0.4, // Hot: 1.0 -> 1.4
+                Season::Autumn => 1.4 - self.season_time * 0.3, // Cooling: 1.4 -> 1.1
+                Season::Winter => 1.1 - self.season_time * 0.5, // Cold: 1.1 -> 0.6
+            }
+        } else {
+            0.85 // Default temperature
+        };
+
+        // Seasonal humidity curve
+        let seasonal_humidity_target = if self.seasonal_cycle_enabled {
+            match self.season {
+                Season::Spring => 0.75, // High humidity (spring rains)
+                Season::Summer => 0.45, // Low humidity (drought)
+                Season::Autumn => 0.70, // Moderate humidity
+                Season::Winter => 0.60, // Moderate humidity
+            }
+        } else {
+            0.65 // Default humidity
+        };
+
+        // Temperature: seasonal base + day/night cycle + random variations
+        let day_night_cycle = (self.time * 0.03).sin() * 0.1; // Day/night variation
+        let random_variation = (rng.gen::<f32>() - 0.5) * 0.03; // Random fluctuations
+        let target_temp = seasonal_temp + day_night_cycle;
         self.temperature = (self.temperature * 0.998
-            + (day_night_cycle + random_variation) * 0.002)
-            .clamp(0.5, 1.5); // Clamp to more optimal range (0.5-1.5 instead of 0.0-2.0)
+            + (target_temp + random_variation) * 0.002)
+            .clamp(0.3, 1.6);
 
-        // Humidity: increases with rain, decreases over time
-        // Keep humidity in a good range (not too dry, not too wet)
+        // Humidity: seasonal target + rain effects
         if self.rain > 0.1 {
             self.humidity = (self.humidity + self.rain * 0.02 * dt * 60.0).min(0.95);
         } else {
-            // Decay slower and stabilize around 0.6-0.7
-            let target_humidity = 0.65;
-            self.humidity = (self.humidity * 0.999 + target_humidity * 0.001).max(0.4);
+            // Move toward seasonal target
+            self.humidity = (self.humidity * 0.999 + seasonal_humidity_target * 0.001).max(0.3);
         }
 
-        // Rain: occasional rain events (less frequent, longer duration)
-        if rng.gen::<f32>() < 0.0005 * dt * 60.0 {
+        // Rain: seasonal probability
+        let rain_probability = if self.seasonal_cycle_enabled {
+            match self.season {
+                Season::Spring => 0.0010, // Frequent spring rains
+                Season::Summer => 0.0002, // Rare summer rains
+                Season::Autumn => 0.0008, // Moderate autumn rains
+                Season::Winter => 0.0005, // Occasional winter precipitation
+            }
+        } else {
+            0.0005 // Default
+        };
+
+        if rng.gen::<f32>() < rain_probability * dt * 60.0 {
             // Start rain event
             self.rain = rng.gen_range(0.4..1.0);
         } else if self.rain > 0.0 {

@@ -126,6 +126,21 @@ pub struct SimulationConfig {
 
     // Weather
     pub weather_enabled: bool,
+    // Seasonal cycles
+    pub seasonal_cycles_enabled: bool, // Enable seasonal temperature/humidity cycles
+    // Soil moisture system
+    pub soil_moisture_enabled: bool,     // Enable soil moisture grid
+    pub moisture_diffusion_rate: f32,    // Rate of moisture diffusion
+    pub moisture_decay_rate: f32,        // Rate of moisture evaporation
+    pub moisture_rain_gain: f32,         // Moisture gain from rain
+    pub moisture_growth_multiplier: f32, // How much moisture affects growth
+    pub moisture_branching_multiplier: f32, // How much moisture affects branching
+    pub moisture_nutrient_multiplier: f32, // How much moisture affects nutrient availability
+    // Light exposure system
+    pub light_exposure_enabled: bool, // Enable light exposure grid
+    pub light_growth_penalty: f32,    // Growth penalty in bright areas (0.0-1.0)
+    pub shaded_zone_count: usize,     // Number of shaded zones
+    pub sunlit_zone_count: usize,     // Number of sunlit zones
     pub weather_affects_growth: bool,
     pub weather_affects_energy: bool,
 
@@ -244,6 +259,21 @@ impl Default for SimulationConfig {
 
             // Weather
             weather_enabled: true,
+            // Seasonal cycles
+            seasonal_cycles_enabled: true,
+            // Soil moisture system
+            soil_moisture_enabled: true,
+            moisture_diffusion_rate: 0.02,   // Moisture diffuses slowly
+            moisture_decay_rate: 0.999,      // Moisture evaporates slowly
+            moisture_rain_gain: 0.05,        // Rain adds moisture
+            moisture_growth_multiplier: 0.5, // Moisture strongly affects growth
+            moisture_branching_multiplier: 0.3, // Moisture affects branching
+            moisture_nutrient_multiplier: 0.4, // Moisture affects nutrient availability
+            // Light exposure system
+            light_exposure_enabled: true,
+            light_growth_penalty: 0.4, // 40% growth penalty in bright areas
+            shaded_zone_count: 8,      // Number of shaded zones
+            sunlit_zone_count: 5,      // Number of sunlit zones
             weather_affects_growth: true,
             weather_affects_energy: true,
 

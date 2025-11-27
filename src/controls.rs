@@ -61,6 +61,23 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         sim.toggle_stress_visualization();
     }
 
+    // Heatmap toggles
+    if is_key_pressed(KeyCode::W) {
+        sim.toggle_heatmap_nutrients();
+    }
+    if is_key_pressed(KeyCode::U) {
+        sim.toggle_heatmap_moisture();
+    }
+    if is_key_pressed(KeyCode::A) {
+        sim.toggle_heatmap_age();
+    }
+    if is_key_pressed(KeyCode::L) {
+        sim.toggle_heatmap_flow();
+    }
+    if is_key_pressed(KeyCode::G) {
+        sim.toggle_heatmap_growth();
+    }
+
     if sim.config.camera_enabled {
         // Camera controls
         if is_key_pressed(KeyCode::Home) {
@@ -188,6 +205,11 @@ pub fn get_controls_text(camera_enabled: bool) -> Vec<ControlText> {
     vec![
         ControlText {
             text: "Controls: SPACE=Pause | R=Reset | Shift+C=Clear | X=Connections | M=Minimap | H=Hyphae | I=Memory",
+            font_size: 16.0,
+            color: Color::new(1.0, 1.0, 1.0, 0.7),
+        },
+        ControlText {
+            text: "Heatmaps: W=Nutrients | U=Moisture | A=Age | L=Flow | G=Growth",
             font_size: 16.0,
             color: Color::new(1.0, 1.0, 1.0, 0.7),
         },

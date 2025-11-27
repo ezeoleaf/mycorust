@@ -67,37 +67,43 @@ Implemented:
 
 This produces beautiful emergent branching behavior as hyphae follow nutrient gradients shaped by water flow.
 
-### 2. Environmental Simulation
+### 2. Environmental Simulation (IMPLEMENTED)
 
 You already have basic weather logic — expand it into a real system.
 
-#### ✔ Seasonal cycles
-- temperature curve
-- humidity curve
-- fruiting triggers
+#### ✔ Seasonal cycles (IMPLEMENTED)
+- ✅ Temperature curve - seasonal temperature variations (Spring: warming, Summer: hot, Autumn: cooling, Winter: cold)
+- ✅ Humidity curve - seasonal humidity patterns (Spring: high, Summer: low/drought, Autumn: moderate, Winter: moderate)
+- ✅ Fruiting triggers - seasonal fruiting multipliers (Autumn: maximum, Spring: moderate, Summer/Winter: low)
 
-Spring = rapid growth
-Summer = drought stress
-Autumn = maximum fruiting
-Winter = dormancy
+Spring = rapid growth (warming temperatures, high humidity, frequent rains)
+Summer = drought stress (high temperature, low humidity, rare rains)
+Autumn = maximum fruiting (moderate temperature, moderate humidity)
+Winter = dormancy (cold temperature, low growth)
 
-#### ✔ Soil moisture system
+#### ✔ Soil moisture system (IMPLEMENTED)
 
 Moisture strongly affects:
-- tip growth speed
-- branching factor
-- survival
-- nutrient availability
+- ✅ Tip growth speed - optimal moisture (0.5-0.8) promotes growth, too dry/wet reduces it
+- ✅ Branching factor - higher moisture increases branching probability
+- ✅ Survival - low moisture reduces growth and can affect survival
+- ✅ Nutrient availability - higher moisture improves nutrient availability
 
-Implement a separate moisture grid.
+Implemented:
+- ✅ Separate moisture grid - tracks soil moisture per cell
+- ✅ Moisture diffusion - moisture spreads to neighbors
+- ✅ Rain effects - rain increases moisture
+- ✅ Evaporation - moisture decays over time
+- ✅ Humidity influence - minimum moisture based on air humidity
 
-#### ✔ Light exposure (for surface mycelia)
+#### ✔ Light exposure (for surface mycelia) (IMPLEMENTED)
 
 Some fungi avoid light; others tolerate it.
 
-Add:
-- shaded vs sunlit zones
-- slower growth in bright areas
+Implemented:
+- ✅ Shaded vs sunlit zones - configurable zones with different light levels
+- ✅ Slower growth in bright areas - growth penalty in sunlit zones (configurable)
+- ✅ Natural avoidance - hyphae grow slower in bright areas, encouraging growth in shaded zones
 
 #### ✔ Contaminants / competitors (IMPLEMENTED)
 
@@ -227,11 +233,13 @@ User sprinkles food → watch mycelium adapt.
 
 A small thermometer/humidity slider changes the global environment.
 
-#### ✔ Heatmap layers
+#### ✔ Heatmap layers (IMPLEMENTED)
 
 User can toggle:
-- nutrients
-- moisture
-- hyphal age
-- resource flow
-- growth probability
+- ✅ Nutrients - shows nutrient distribution (default: on, key: N)
+- ✅ Moisture - shows soil moisture levels with blue gradient (key: U)
+- ✅ Hyphal age - shows age distribution with green→yellow→red gradient (key: A)
+- ✅ Resource flow - shows flow intensity with cyan→white gradient (key: L)
+- ✅ Growth probability - shows predicted growth probability based on nutrients, moisture, and light with purple→pink gradient (key: G)
+
+All heatmaps are toggleable independently and can be layered for comprehensive visualization.

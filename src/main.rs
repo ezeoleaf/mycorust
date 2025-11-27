@@ -95,7 +95,8 @@ fn load_config(config_path: Option<&str>) -> Result<SimulationConfig, Box<dyn st
 async fn ui_main(config: SimulationConfig) {
     use controls::handle_controls;
     use visualization::{
-        draw_connections, draw_fruit_bodies, draw_help_popup, draw_hyphae_enhanced,
+        draw_connections, draw_fruit_bodies, draw_heatmap_age, draw_heatmap_flow,
+        draw_heatmap_growth, draw_heatmap_moisture, draw_help_popup, draw_hyphae_enhanced,
         draw_memory_overlay, draw_minimap, draw_nutrients, draw_obstacles, draw_segments,
         draw_stats_and_help, draw_zones,
     };
@@ -121,8 +122,33 @@ async fn ui_main(config: SimulationConfig) {
         // Blue background every frame so it stays visible
         clear_background(Color::new(0.05, 0.10, 0.35, 1.0));
 
-        // Draw nutrients
-        draw_nutrients(&sim.state.nutrients, &sim.config);
+        // Draw heatmap layers (order matters - draw base layers first)
+        if sim.heatmap_nutrients {
+            draw_nutrients(&sim.state.nutrients, &sim.config);
+        }
+        if sim.heatmap_moisture && sim.config.soil_moisture_enabled {
+            draw_heatmap_moisture(&sim.state.soil_moisture, &sim.config);
+        }
+        if sim.heatmap_age {
+            draw_heatmap_age(&sim.state.hyphae, &sim.config);
+        }
+        if sim.heatmap_flow {
+            draw_heatmap_flow(
+                &sim.state.connections,
+                &sim.state.hyphae,
+                &sim.hypha_flow_cache,
+                &sim.config,
+            );
+        }
+        if sim.heatmap_growth {
+            draw_heatmap_growth(
+                &sim.state.hyphae,
+                &sim.state.nutrients,
+                &sim.state.soil_moisture,
+                &sim.state.light_exposure,
+                &sim.config,
+            );
+        }
 
         // Draw obstacles
         draw_obstacles(&sim.state.obstacles, &sim.config);

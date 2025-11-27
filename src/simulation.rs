@@ -84,6 +84,10 @@ pub struct SimulationState {
     pub density_map_size: usize,    // Size of density map (grid_size * density_map_resolution)
     // Contaminants/competitors zones
     pub zones: Vec<Vec<Zone>>, // Zone grid: toxic zones, competitors, deadwood patches
+    // Soil moisture system
+    pub soil_moisture: Vec<Vec<f32>>, // Soil moisture grid (0.0 = dry, 1.0 = saturated)
+    // Light exposure system
+    pub light_exposure: Vec<Vec<f32>>, // Light exposure grid (0.0 = shaded, 1.0 = full sun)
 }
 
 impl SimulationState {
@@ -130,6 +134,8 @@ impl SimulationState {
                 ];
                 grid_size
             ],
+            soil_moisture: vec![vec![0.5f32; grid_size]; grid_size], // Start at moderate moisture
+            light_exposure: vec![vec![0.5f32; grid_size]; grid_size], // Start at moderate light
         }
     }
 }
@@ -147,6 +153,12 @@ pub struct Simulation {
     pub show_flow: bool,      // Show nutrient flow intensity
     pub show_stress: bool,    // Show environmental stress
     pub help_popup_visible: bool, // Show help popup window
+    // Heatmap layers
+    pub heatmap_nutrients: bool, // Toggle nutrients heatmap
+    pub heatmap_moisture: bool,  // Toggle moisture heatmap
+    pub heatmap_age: bool,       // Toggle hyphal age heatmap
+    pub heatmap_flow: bool,      // Toggle resource flow heatmap
+    pub heatmap_growth: bool,    // Toggle growth probability heatmap
     pub speed_multiplier: f32,
     pub speed_accumulator: f32,
     // Performance: Cache for visualization (computed once per frame)
@@ -312,6 +324,11 @@ impl Simulation {
             speed_multiplier: 1.0,
             speed_accumulator: 0.0,
             hypha_flow_cache: Vec::new(),
+            heatmap_nutrients: true, // Default: show nutrients
+            heatmap_moisture: false,
+            heatmap_age: false,
+            heatmap_flow: false,
+            heatmap_growth: false,
             #[cfg(feature = "ui")]
             camera,
             #[cfg(feature = "ui")]
@@ -451,6 +468,11 @@ impl Simulation {
             speed_accumulator: 0.0,
             help_popup_visible: false,
             hypha_flow_cache: Vec::new(),
+            heatmap_nutrients: true, // Default: show nutrients
+            heatmap_moisture: false,
+            heatmap_age: false,
+            heatmap_flow: false,
+            heatmap_growth: false,
             #[cfg(feature = "ui")]
             camera: crate::camera::Camera::new(camera_enabled, &config_for_camera),
             #[cfg(feature = "ui")]
@@ -609,6 +631,21 @@ impl Simulation {
     }
     pub fn toggle_stress_visualization(&mut self) {
         self.show_stress = !self.show_stress;
+    }
+    pub fn toggle_heatmap_nutrients(&mut self) {
+        self.heatmap_nutrients = !self.heatmap_nutrients;
+    }
+    pub fn toggle_heatmap_moisture(&mut self) {
+        self.heatmap_moisture = !self.heatmap_moisture;
+    }
+    pub fn toggle_heatmap_age(&mut self) {
+        self.heatmap_age = !self.heatmap_age;
+    }
+    pub fn toggle_heatmap_flow(&mut self) {
+        self.heatmap_flow = !self.heatmap_flow;
+    }
+    pub fn toggle_heatmap_growth(&mut self) {
+        self.heatmap_growth = !self.heatmap_growth;
     }
 
     #[cfg(feature = "ui")]
@@ -847,7 +884,58 @@ impl Simulation {
         if self.config.weather_enabled {
             let fps = get_fps();
             let dt = 1.0 / fps.max(1.0);
+            self.state.weather.seasonal_cycle_enabled = self.config.seasonal_cycles_enabled;
             self.state.weather.update(dt, rng);
+        }
+
+        // Update soil moisture system
+        if self.config.soil_moisture_enabled {
+            // Moisture diffusion (spread moisture to neighbors)
+            let grid_size = self.config.grid_size;
+            let mut moisture_back = vec![vec![0.0f32; grid_size]; grid_size];
+            for x in 0..grid_size {
+                for y in 0..grid_size {
+                    moisture_back[x][y] = self.state.soil_moisture[x][y];
+                }
+            }
+
+            for x in 1..grid_size - 1 {
+                for y in 1..grid_size - 1 {
+                    // Average with neighbors (diffusion)
+                    let avg = (moisture_back[x - 1][y]
+                        + moisture_back[x + 1][y]
+                        + moisture_back[x][y - 1]
+                        + moisture_back[x][y + 1])
+                        / 4.0;
+                    self.state.soil_moisture[x][y] = moisture_back[x][y]
+                        * (1.0 - self.config.moisture_diffusion_rate)
+                        + avg * self.config.moisture_diffusion_rate;
+                }
+            }
+
+            // Rain adds moisture
+            if self.config.weather_enabled && self.state.weather.rain > 0.1 {
+                let rain_moisture = self.state.weather.rain * self.config.moisture_rain_gain;
+                for x in 0..grid_size {
+                    for y in 0..grid_size {
+                        self.state.soil_moisture[x][y] =
+                            (self.state.soil_moisture[x][y] + rain_moisture).min(1.0);
+                    }
+                }
+            }
+
+            // Moisture decay (evaporation)
+            for x in 0..grid_size {
+                for y in 0..grid_size {
+                    self.state.soil_moisture[x][y] *= self.config.moisture_decay_rate;
+                    // Keep minimum moisture based on humidity
+                    if self.config.weather_enabled {
+                        let min_moisture = self.state.weather.humidity * 0.3;
+                        self.state.soil_moisture[x][y] =
+                            self.state.soil_moisture[x][y].max(min_moisture);
+                    }
+                }
+            }
         }
 
         // Performance: Growth limits - remove excess hyphae if over limit
@@ -1197,6 +1285,41 @@ impl Simulation {
                         1.0
                     };
 
+                // Soil moisture: affects growth rate
+                let moisture_growth_multiplier = if self.config.soil_moisture_enabled
+                    && in_bounds(h.x, h.y, self.config.grid_size)
+                {
+                    let xi = h.x as usize;
+                    let yi = h.y as usize;
+                    let moisture = self.state.soil_moisture[xi][yi];
+                    // Optimal moisture: 0.5-0.8, too dry or too wet reduces growth
+                    if moisture < 0.3 {
+                        // Too dry: reduced growth
+                        0.4 + (moisture / 0.3) * 0.4
+                    } else if moisture <= 0.8 {
+                        // Optimal: full growth
+                        1.0
+                    } else {
+                        // Too wet: slightly reduced growth
+                        1.0 - (moisture - 0.8) / 0.2 * 0.3
+                    }
+                } else {
+                    1.0
+                };
+
+                // Light exposure: affects growth rate (fungi avoid bright light)
+                let light_growth_multiplier = if self.config.light_exposure_enabled
+                    && in_bounds(h.x, h.y, self.config.grid_size)
+                {
+                    let xi = h.x as usize;
+                    let yi = h.y as usize;
+                    let light = self.state.light_exposure[xi][yi];
+                    // Bright light reduces growth
+                    1.0 - (light * self.config.light_growth_penalty)
+                } else {
+                    1.0
+                };
+
                 // Carbon/Nitrogen ratio: growth efficiency based on C:N ratio
                 let cn_ratio_multiplier = if h.nitrogen > 0.001 {
                     let cn_ratio = h.carbon / h.nitrogen;
@@ -1224,6 +1347,8 @@ impl Simulation {
                     * density_inhibition
                     * strength_multiplier
                     * weather_growth_multiplier
+                    * moisture_growth_multiplier
+                    * light_growth_multiplier
                     * cn_ratio_multiplier;
                 h.x += h.angle.cos() * final_step_size;
                 h.y += h.angle.sin() * final_step_size;
@@ -1321,6 +1446,15 @@ impl Simulation {
                 // Consume both sugar (primary) and nitrogen (secondary)
                 let mut sugar = self.state.nutrients.sugar[xi][yi];
                 let mut nitrogen = self.state.nutrients.nitrogen[xi][yi];
+
+                // Soil moisture: affects nutrient availability
+                if self.config.soil_moisture_enabled && in_bounds(h.x, h.y, self.config.grid_size) {
+                    let moisture = self.state.soil_moisture[xi][yi];
+                    // Higher moisture = better nutrient availability
+                    let nutrient_mult = 0.6 + moisture * 0.4; // 0.6-1.0 multiplier
+                    sugar *= nutrient_mult;
+                    nitrogen *= nutrient_mult;
+                }
 
                 // Competitors consume nutrients before hyphae can
                 if self.config.zones_enabled && in_bounds(h.x, h.y, self.config.grid_size) {
@@ -1590,8 +1724,23 @@ impl Simulation {
                             1.0
                         };
 
-                    let branch_prob =
-                        self.config.branch_prob * age_branch_boost * weather_branch_mult;
+                    // Soil moisture: affects branching probability
+                    let moisture_branch_mult = if self.config.soil_moisture_enabled
+                        && in_bounds(h.x, h.y, self.config.grid_size)
+                    {
+                        let xi = h.x as usize;
+                        let yi = h.y as usize;
+                        let moisture = self.state.soil_moisture[xi][yi];
+                        // Higher moisture = more branching
+                        0.5 + moisture * 0.5
+                    } else {
+                        1.0
+                    };
+
+                    let branch_prob = self.config.branch_prob
+                        * age_branch_boost
+                        * weather_branch_mult
+                        * moisture_branch_mult;
 
                     // Ensure minimum branching probability even in bad weather
                     // This prevents complete stagnation while still allowing weather effects

@@ -92,6 +92,9 @@ The simulation can be tested without requiring a graphics context, making it CI/
   - **Temperature**: Affects growth rate and energy consumption
   - **Humidity**: Influences nutrient diffusion and spore germination
   - **Rain**: Impacts overall growth conditions
+  - **Seasonal Cycles**: Four distinct seasons (Spring, Summer, Autumn, Winter) with different temperature and humidity curves, affecting growth and fruiting patterns
+  - **Soil Moisture System**: Separate moisture grid that affects tip growth speed, branching factor, survival, and nutrient availability
+  - **Light Exposure System**: Shaded vs sunlit zones affect mycelium growth, with fungi avoiding bright light
 - Weather conditions change over time, creating dynamic environmental challenges.
 - Weather affects growth rate, energy consumption, nutrient diffusion, and spore germination.
 
@@ -107,6 +110,12 @@ The simulation can be tested without requiring a graphics context, making it CI/
   - Environmental stress visualization (red/orange for low energy, white/blue for high energy)
   - **Senescence decay visualization**: Brown/grey coloring for dying hyphae (brown for early decay, grey for advanced decay)
   - Pulsing animations for resource movement and signaling
+- **Heatmap Layers**: Toggleable overlays for visualizing:
+  - **Nutrients**: Nutrient distribution (default: on)
+  - **Moisture**: Soil moisture levels (blue gradient)
+  - **Age**: Hyphal age distribution (green→yellow→red gradient)
+  - **Flow**: Resource flow intensity (cyan→white gradient)
+  - **Growth Probability**: Predicted growth probability based on nutrients, moisture, and light (purple→pink gradient)
 - **Camera System**: Pan and zoom to explore the network at multiple scales (optional, disabled by default).
 - **Screenshot**: Capture high-resolution images of the simulation (P key).
 - **Spatial Culling**: Only visible objects are rendered for better performance.
@@ -157,6 +166,14 @@ The simulation can be tested without requiring a graphics context, making it CI/
 - **V**: Toggle enhanced visualization (age/flow/stress coloring)
 - **F**: Toggle flow visualization (green pulses)
 - **1**: Toggle stress visualization (red/orange for low energy)
+
+#### Heatmap Layers
+Toggleable heatmap overlays for visualizing different aspects of the simulation:
+- **N**: Toggle nutrients heatmap (default: on) - shows nutrient distribution
+- **U**: Toggle moisture heatmap - shows soil moisture levels (blue gradient)
+- **A**: Toggle age heatmap - shows hyphal age distribution (green→yellow→red)
+- **L**: Toggle flow heatmap - shows resource flow intensity (cyan→white)
+- **G**: Toggle growth probability heatmap - shows predicted growth probability (purple→pink)
 
 Controls help is shown at the bottom of the screen. Press **F1** to toggle the help popup.
 
@@ -541,6 +558,28 @@ let sim = Simulation::with_config(&mut rng, config);
 - `weather_enabled: bool` — enable weather system (default: true)
 - `weather_affects_growth: bool` — weather affects growth rate (default: true)
 - `weather_affects_energy: bool` — weather affects energy consumption (default: true)
+
+#### Seasonal Cycles
+- `seasonal_cycles_enabled: bool` — enable seasonal temperature/humidity cycles (default: true)
+  - **Spring**: Rapid growth, high humidity, frequent rains
+  - **Summer**: Drought stress, high temperature, low humidity
+  - **Autumn**: Maximum fruiting, moderate conditions
+  - **Winter**: Dormancy, cold temperature, low growth
+
+#### Soil Moisture System
+- `soil_moisture_enabled: bool` — enable soil moisture grid (default: true)
+- `moisture_diffusion_rate: f32` — rate of moisture diffusion (default: 0.02)
+- `moisture_decay_rate: f32` — rate of moisture evaporation (default: 0.999)
+- `moisture_rain_gain: f32` — moisture gain from rain (default: 0.05)
+- `moisture_growth_multiplier: f32` — how much moisture affects growth (default: 0.5)
+- `moisture_branching_multiplier: f32` — how much moisture affects branching (default: 0.3)
+- `moisture_nutrient_multiplier: f32` — how much moisture affects nutrient availability (default: 0.4)
+
+#### Light Exposure System
+- `light_exposure_enabled: bool` — enable light exposure grid (default: true)
+- `light_growth_penalty: f32` — growth penalty in bright areas (default: 0.4)
+- `shaded_zone_count: usize` — number of shaded zones (default: 8)
+- `sunlit_zone_count: usize` — number of sunlit zones (default: 5)
 
 #### Fusion
 - `fusion_enabled: bool` — enable fusion (default: true)
