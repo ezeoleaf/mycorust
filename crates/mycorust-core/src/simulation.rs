@@ -1,53 +1,20 @@
 use ::rand as external_rand;
 use external_rand::Rng;
-#[cfg(not(test))]
-#[cfg(feature = "ui")]
-use macroquad::prelude::*;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::config::SimulationConfig;
 use crate::hypha::Hypha;
 use crate::nutrients::{memory_gradient, nutrient_gradient, NutrientGrid};
 use crate::spore::Spore;
-use crate::types::{Connection, FruitBody, Segment, Zone, ZoneType};
-use crate::weather::Weather;
+use crate::types::{Connection, FruitBody, Segment, Vec2, Zone, ZoneType};
+use crate::weather::{EnvironmentalStress, Weather};
 
-// Runtime flag to indicate if we're running in headless mode
-// This is set when headless mode starts and checked to avoid calling macroquad
-static HEADLESS_MODE: AtomicBool = AtomicBool::new(false);
+/// Fixed timestep used by weather, fruiting, and other time-based systems.
+/// Idea crates get deterministic clocks; the UI still presents ~60 FPS.
+const SIM_FPS: f32 = 60.0;
 
-pub fn set_headless_mode(headless: bool) {
-    HEADLESS_MODE.store(headless, Ordering::Relaxed);
-}
-
-// Helper function to get FPS - use default for tests, actual FPS for runtime
-// In headless mode or when macroquad isn't initialized, returns a safe default
-#[cfg(test)]
-fn get_fps() -> f32 {
-    60.0 // Default FPS for tests
-}
-
-#[cfg(not(test))]
-#[cfg(feature = "ui")]
-fn get_fps() -> f32 {
-    // If we're in headless mode, don't call macroquad
-    if HEADLESS_MODE.load(Ordering::Relaxed) {
-        return 60.0;
-    }
-
-    // Try to get FPS from macroquad, but fall back to default if not available
-    // This handles the case where UI features are compiled in but we're running headless
-    // Macroquad has thread-local state that panics if accessed from wrong thread/context
-    use std::panic;
-    panic::catch_unwind(|| macroquad::prelude::get_fps() as f32).unwrap_or(60.0)
-    // Default FPS if macroquad isn't available or panics
-}
-
-#[cfg(not(test))]
-#[cfg(not(feature = "ui"))]
-fn get_fps() -> f32 {
-    60.0 // Default FPS for headless mode
+fn sim_dt() -> f32 {
+    1.0 / SIM_FPS
 }
 
 #[inline]
@@ -86,6 +53,7 @@ pub struct SimulationState {
     pub zones: Vec<Vec<Zone>>, // Zone grid: toxic zones, competitors, deadwood patches
     // Soil moisture system
     pub soil_moisture: Vec<Vec<f32>>, // Soil moisture grid (0.0 = dry, 1.0 = saturated)
+    pub soil_moisture_back: Vec<Vec<f32>>, // Persistent double buffer (avoids per-step alloc)
     // Light exposure system
     pub light_exposure: Vec<Vec<f32>>, // Light exposure grid (0.0 = shaded, 1.0 = full sun)
 }
@@ -135,6 +103,7 @@ impl SimulationState {
                 grid_size
             ],
             soil_moisture: vec![vec![0.5f32; grid_size]; grid_size], // Start at moderate moisture
+            soil_moisture_back: vec![vec![0.5f32; grid_size]; grid_size],
             light_exposure: vec![vec![0.5f32; grid_size]; grid_size], // Start at moderate light
         }
     }
@@ -163,12 +132,6 @@ pub struct Simulation {
     pub speed_accumulator: f32,
     // Performance: Cache for visualization (computed once per frame)
     pub hypha_flow_cache: Vec<f32>, // Pre-computed flow values per hypha
-    // Camera for pan/zoom (only in UI mode)
-    #[cfg(feature = "ui")]
-    pub camera: crate::camera::Camera,
-    // Screenshot flag (only in UI mode)
-    #[cfg(feature = "ui")]
-    pub take_screenshot: bool,
 }
 
 // Implement Deref for convenience - allows sim.nutrients instead of sim.state.nutrients
@@ -203,7 +166,6 @@ impl Simulation {
         _init_camera: bool,
     ) -> Self {
         let grid_size = config.grid_size;
-        let camera_enabled_for_camera = config.camera_enabled;
         let mut state = SimulationState::new(&config);
         let center = grid_size as f32 / 2.0;
 
@@ -307,9 +269,6 @@ impl Simulation {
             });
         }
 
-        #[cfg(feature = "ui")]
-        let camera = crate::camera::Camera::new(camera_enabled_for_camera, &config);
-
         Self {
             state,
             config,
@@ -329,10 +288,6 @@ impl Simulation {
             heatmap_age: false,
             heatmap_flow: false,
             heatmap_growth: false,
-            #[cfg(feature = "ui")]
-            camera,
-            #[cfg(feature = "ui")]
-            take_screenshot: false,
             help_popup_visible: false,
         }
     }
@@ -447,12 +402,6 @@ impl Simulation {
             });
         }
 
-        // Read camera_enabled before moving config
-        let camera_enabled = config.camera_enabled;
-
-        // Clone config for camera (since we need to move original into Self)
-        let config_for_camera = config.clone();
-
         Self {
             state,
             config,
@@ -473,10 +422,6 @@ impl Simulation {
             heatmap_age: false,
             heatmap_flow: false,
             heatmap_growth: false,
-            #[cfg(feature = "ui")]
-            camera: crate::camera::Camera::new(camera_enabled, &config_for_camera),
-            #[cfg(feature = "ui")]
-            take_screenshot: false,
         }
     }
 
@@ -646,11 +591,6 @@ impl Simulation {
     }
     pub fn toggle_heatmap_growth(&mut self) {
         self.heatmap_growth = !self.heatmap_growth;
-    }
-
-    #[cfg(feature = "ui")]
-    pub fn toggle_camera(&mut self) {
-        self.camera.toggle_enabled();
     }
 
     pub fn toggle_help_popup(&mut self) {
@@ -877,31 +817,66 @@ impl Simulation {
         )
     }
 
+    /// Run `n` simulation steps.
+    pub fn step_n<R: Rng>(&mut self, rng: &mut R, n: usize) {
+        for _ in 0..n {
+            self.step(rng);
+        }
+    }
+
+    /// Apply an environmental shock (drought, flood, heat, cold, pollution).
+    /// Pollution also plants a toxic zone at the grid center.
+    pub fn apply_stress(&mut self, stress: EnvironmentalStress) {
+        self.state.weather.apply_stress(stress);
+        if stress == EnvironmentalStress::Pollution {
+            let center = self.config.grid_size / 2;
+            let radius = (self.config.grid_size as f32 * 0.18).max(6.0);
+            Self::create_zone(
+                &mut self.state.zones,
+                center,
+                center,
+                radius,
+                ZoneType::Toxic,
+                0.9,
+                self.config.grid_size,
+            );
+        }
+        if stress == EnvironmentalStress::Drought || stress == EnvironmentalStress::HeatShock {
+            for row in &mut self.state.soil_moisture {
+                for cell in row {
+                    *cell *= 0.25;
+                }
+            }
+        }
+        if stress == EnvironmentalStress::Flood {
+            for row in &mut self.state.soil_moisture {
+                for cell in row {
+                    *cell = (*cell + 0.6).min(1.0);
+                }
+            }
+        }
+    }
+
     pub fn step<R: Rng>(&mut self, rng: &mut R) {
         self.state.frame_index = self.state.frame_index.wrapping_add(1);
 
         // Weather: Update weather conditions
         if self.config.weather_enabled {
-            let fps = get_fps();
-            let dt = 1.0 / fps.max(1.0);
+            let dt = sim_dt();
             self.state.weather.seasonal_cycle_enabled = self.config.seasonal_cycles_enabled;
             self.state.weather.update(dt, rng);
         }
 
         // Update soil moisture system
         if self.config.soil_moisture_enabled {
-            // Moisture diffusion (spread moisture to neighbors)
             let grid_size = self.config.grid_size;
-            let mut moisture_back = vec![vec![0.0f32; grid_size]; grid_size];
+            let moisture_back = &mut self.state.soil_moisture_back;
             for x in 0..grid_size {
-                for y in 0..grid_size {
-                    moisture_back[x][y] = self.state.soil_moisture[x][y];
-                }
+                moisture_back[x].copy_from_slice(&self.state.soil_moisture[x]);
             }
 
             for x in 1..grid_size - 1 {
                 for y in 1..grid_size - 1 {
-                    // Average with neighbors (diffusion)
                     let avg = (moisture_back[x - 1][y]
                         + moisture_back[x + 1][y]
                         + moisture_back[x][y - 1]
@@ -1011,13 +986,14 @@ impl Simulation {
             }
         }
 
-        // Age segments
-        for segment in &mut self.state.segments {
-            segment.age += self.config.segment_age_increment;
+        if self.config.record_segments {
+            for segment in &mut self.state.segments {
+                segment.age += self.config.segment_age_increment;
+            }
+            self.state
+                .segments
+                .retain(|s| s.age < self.config.max_segment_age);
         }
-        self.state
-            .segments
-            .retain(|s| s.age < self.config.max_segment_age);
 
         let mut new_hyphae = vec![];
         let mut energy_transfers: Vec<(usize, usize, f32)> = Vec::new();
@@ -1756,23 +1732,7 @@ impl Simulation {
                         let offset_x = h.x + branch_angle.cos() * offset_distance;
                         let offset_y = h.y + branch_angle.sin() * offset_distance;
 
-                        // Create segment immediately to connect parent to new branch (prevents blank space)
-                        #[cfg(feature = "ui")]
-                        #[cfg(not(test))]
-                        {
-                            let from = macroquad::prelude::vec2(
-                                h.x * self.config.cell_size,
-                                h.y * self.config.cell_size,
-                            );
-                            let to = macroquad::prelude::vec2(
-                                offset_x * self.config.cell_size,
-                                offset_y * self.config.cell_size,
-                            );
-                            self.state.segments.push(Segment { from, to, age: 0.0 });
-                        }
-                        #[cfg(any(test, not(feature = "ui")))]
-                        {
-                            use crate::types::Vec2;
+                        if self.config.record_segments {
                             let from =
                                 Vec2::new(h.x * self.config.cell_size, h.y * self.config.cell_size);
                             let to = Vec2::new(
@@ -1805,24 +1765,7 @@ impl Simulation {
                     }
                 }
 
-                // Create segment for visualization (trails)
-                // Use types::Vec2 for headless/test mode, macroquad::Vec2 for UI mode
-                #[cfg(feature = "ui")]
-                #[cfg(not(test))]
-                {
-                    let from = macroquad::prelude::vec2(
-                        h.prev_x * self.config.cell_size,
-                        h.prev_y * self.config.cell_size,
-                    );
-                    let to = macroquad::prelude::vec2(
-                        h.x * self.config.cell_size,
-                        h.y * self.config.cell_size,
-                    );
-                    self.state.segments.push(Segment { from, to, age: 0.0 });
-                }
-                #[cfg(any(test, not(feature = "ui")))]
-                {
-                    use crate::types::Vec2;
+                if self.config.record_segments {
                     let from = Vec2::new(
                         h.prev_x * self.config.cell_size,
                         h.prev_y * self.config.cell_size,
@@ -2356,13 +2299,8 @@ impl Simulation {
             }
         }
 
-        // diffuse nutrients (LOD: bounding box + frame skipping)
-        // Only skip diffusion when FPS is very low to prevent visual issues
-        let do_diffuse = if get_fps() < 25.0 {
-            (self.state.frame_index % 2) == 0 // Skip every other frame only when FPS < 25
-        } else {
-            true
-        };
+        // diffuse nutrients (LOD: bounding box)
+        let do_diffuse = true;
         if do_diffuse {
             // Weather: Apply weather effects to nutrient diffusion
             let diffusion_rate = if self.config.weather_enabled {
@@ -2551,18 +2489,6 @@ impl Simulation {
                     nitrogen: 0.0,
                 });
                 spore.alive = false;
-                // Particle burst at germination (visualization only - not used in tests)
-                #[cfg(all(not(test), feature = "ui"))]
-                {
-                    use macroquad::prelude::*;
-                    for k in 0..8 {
-                        let a = (k as f32 / 8.0) * std::f32::consts::TAU + rng.gen_range(-0.2..0.2);
-                        let r = rng.gen_range(2.0..5.0);
-                        let px = spore.x * self.config.cell_size + a.cos() * r;
-                        let py = spore.y * self.config.cell_size + a.sin() * r;
-                        draw_circle(px, py, 1.5, Color::new(1.0, 0.8, 0.3, 0.6));
-                    }
-                }
             }
         }
         self.state.hyphae.extend(new_hyphae_from_spores);
@@ -2579,9 +2505,8 @@ impl Simulation {
                 total_energy += h.energy;
             }
         }
-        let fps = get_fps();
         self.state.fruit_cooldown_timer =
-            (self.state.fruit_cooldown_timer - 1.0 / fps.max(1.0)).max(0.0);
+            (self.state.fruit_cooldown_timer - sim_dt()).max(0.0);
         if self.state.fruit_cooldown_timer <= 0.0
             && hyphae_count >= self.config.fruiting_min_hyphae
             && total_energy >= self.config.fruiting_threshold_total_energy
@@ -3266,5 +3191,18 @@ mod tests {
                 assert!(sim.state.nutrients.nitrogen[x][y] >= 0.0);
             }
         }
+    }
+
+    #[test]
+    fn test_record_segments_disabled() {
+        let mut rng = StdRng::seed_from_u64(42);
+        let mut config = SimulationConfig::default();
+        config.record_segments = false;
+        let mut sim = Simulation::with_config(&mut rng, config);
+        sim.step_n(&mut rng, 80);
+        assert!(
+            sim.state.segments.is_empty(),
+            "trails should not be recorded when record_segments is false"
+        );
     }
 }

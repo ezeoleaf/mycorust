@@ -1,10 +1,6 @@
 // Camera system for pan and zoom functionality
 
-#[cfg(not(test))]
 use macroquad::prelude::*;
-
-#[cfg(test)]
-use crate::types::Vec2;
 
 /// Camera state for pan and zoom
 pub struct Camera {
@@ -36,7 +32,7 @@ impl Camera {
         1.0
     }
 
-    pub fn new(enabled: bool, config: &crate::config::SimulationConfig) -> Self {
+    pub fn new(enabled: bool, config: &mycorust_core::config::SimulationConfig) -> Self {
         // Center camera on the grid
         // Grid goes from (0, 0) to (grid_size * cell_size, grid_size * cell_size)
         // So center is at (grid_size * cell_size / 2, grid_size * cell_size / 2)
@@ -70,7 +66,7 @@ impl Camera {
     }
 
     /// Reset camera to default position and zoom (centered on grid, grid filling screen)
-    pub fn reset(&mut self, config: &crate::config::SimulationConfig) {
+    pub fn reset(&mut self, config: &mycorust_core::config::SimulationConfig) {
         let grid_size = config.grid_size;
         let cell_size = config.cell_size;
         let grid_center_x = (grid_size as f32 * cell_size) / 2.0;
@@ -191,7 +187,7 @@ impl Camera {
     /// Update camera based on input
     /// Only processes input if camera is enabled
     #[cfg(not(test))]
-    pub fn update(&mut self, config: &crate::config::SimulationConfig) {
+    pub fn update(&mut self, config: &mycorust_core::config::SimulationConfig) {
         // Don't process input if camera is disabled
         if !self.enabled {
             return;
@@ -269,7 +265,7 @@ impl Camera {
     }
 
     #[cfg(test)]
-    pub fn update(&mut self, _config: &crate::config::SimulationConfig) {
+    pub fn update(&mut self, _config: &mycorust_core::config::SimulationConfig) {
         // Test stub - camera update not needed in tests
     }
 }

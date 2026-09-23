@@ -1,6 +1,10 @@
 // Global configuration and constants
 use serde::{Deserialize, Serialize};
 
+fn default_true() -> bool {
+    true
+}
+
 // Configuration struct for simulation parameters
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimulationConfig {
@@ -76,6 +80,9 @@ pub struct SimulationConfig {
     // Segments/trails
     pub max_segment_age: f32,
     pub segment_age_increment: f32,
+    /// Record hyphal trails. Visualization-only; disable in headless experiments.
+    #[serde(default = "default_true")]
+    pub record_segments: bool,
 
     // Fruiting
     pub fruiting_min_hyphae: usize,
@@ -215,6 +222,7 @@ impl Default for SimulationConfig {
             density_decay_rate: 0.99,  // Density decays 1% per frame
             max_segment_age: 10.0,
             segment_age_increment: 0.01,
+            record_segments: true,
             fruiting_min_hyphae: 12,
             fruiting_threshold_total_energy: 6.0,
             fruiting_cooldown: 10.0,

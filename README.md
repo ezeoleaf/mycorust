@@ -2,9 +2,21 @@
 
 A mycelium/hyphae growth simulation in Rust. Hyphae follow nutrient gradients, branch, form connections (anastomosis), avoid collisions, and leave fading trails. Features advanced network intelligence, weather simulation, adaptive growth, and memory systems.
 
-**Two modes available:**
+The growth engine lives in **`mycorust-core`**. The interactive UI and HTTP API live in **`mycorust`**. Experiments that reuse the engine (climate stress, routing, generative art, evolution, …) live in **`ideas/`** — see [IDEAS.md](IDEAS.md).
+
+**Three ways to play:**
 - **UI Mode**: Interactive visualization using Macroquad (default)
 - **Headless Mode**: HTTP API server for integration with custom visualization tools
+- **Web garden**: a cute in-browser grower in [`web/`](web/) (GitHub Pages via Actions)
+
+### Web garden
+
+```bash
+cd web
+python3 -m http.server 8765
+```
+
+Open http://localhost:8765 — a spore lands and the mycelium starts growing. Tap to feed it crumbs. Pushing `web/` to `main` deploys it with `.github/workflows/pages.yml` once Pages is set to **GitHub Actions**.
 
 ### Prerequisites
 
@@ -433,10 +445,11 @@ await fetch('http://localhost:8080/step?steps=1', { method: 'POST' });
 
 ### Configuration
 
-The simulation uses a `SimulationConfig` struct for all parameters, located in `src/config.rs`. You can customize the simulation by creating a custom config:
+The simulation uses a `SimulationConfig` struct for all parameters, located in `crates/mycorust-core/src/config.rs`. You can customize the simulation by creating a custom config:
 
 ```rust
-use mycorust::config::SimulationConfig;
+use mycorust_core::config::SimulationConfig;
+use mycorust_core::simulation::Simulation;
 
 let mut config = SimulationConfig::default();
 config.grid_size = 300;  // Larger grid
@@ -636,20 +649,24 @@ cargo test -- --nocapture
 
 ### Architecture
 
-The simulation is organized into several modules:
+The simulation is a Cargo workspace:
 
-- **`simulation.rs`** — Core simulation logic with `Simulation`, `SimulationState`, and `SimulationConfig` structs. Includes test suite.
-- **`config.rs`** — Configuration struct with all simulation parameters
-- **`hypha.rs`** — Hypha struct and behavior
-- **`spore.rs`** — Spore struct and behavior
-- **`nutrients.rs`** — Nutrient grid and gradient calculations
-- **`visualization.rs`** — All drawing functions with enhanced visualization options (UI mode only)
-- **`controls.rs`** — Input handling and control text (UI mode only)
-- **`types.rs`** — Shared types (Connection, Segment, FruitBody, Vec2)
-- **`weather.rs`** — Weather system with temperature, humidity, and rain
-- **`camera.rs`** — Camera system for pan/zoom functionality (UI mode only)
-- **`api.rs`** — HTTP API server for headless mode with REST endpoints
-- **`main.rs`** — Main entry point, supports both UI and headless modes
+- **`crates/mycorust-core`** — headless engine (`Simulation`, nutrients, weather, `analyze()` metrics). No UI.
+- **`crates/mycorust`** — interactive Macroquad app and headless HTTP API.
+- **`ideas/*`** — small binaries that only depend on the core. Run with `cargo run -p mycorust-climate` (see [IDEAS.md](IDEAS.md)).
+
+`cargo run` still launches the interactive simulator (default workspace member).
+
+#### Core (`mycorust-core`)
+- **`simulation.rs`** — `Simulation` / `SimulationState`, stepping, tests
+- **`config.rs`** — `SimulationConfig`
+- **`hypha.rs`**, **`spore.rs`**, **`nutrients.rs`**, **`weather.rs`**, **`types.rs`**
+- **`metrics.rs`** — network fragmentation, resilience, shortest paths
+
+#### App (`mycorust`)
+- **`visualization.rs`**, **`controls.rs`**, **`camera.rs`** — UI only
+- **`api.rs`** — HTTP API for headless mode
+- **`main.rs`** — UI and headless entry points
 
 The `Simulation` struct contains:
 - `state: SimulationState` — All mutable simulation data (nutrients, hyphae, spores, connections, memory, weather, etc.)

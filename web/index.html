@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#15221c" />
+    <title>mycorust — a little fungus</title>
+    <meta
+      name="description"
+      content="Watch a tiny mycelium network grow in your browser. Tap the soil to feed it crumbs."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Nunito:wght@500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="brand">
+        <svg class="mascot" viewBox="0 0 64 64" role="img" aria-label="A round smiling mushroom">
+          <ellipse cx="32" cy="46" rx="11" ry="12" fill="#f4e4c8" />
+          <path
+            d="M12 30c0-14 9-24 20-24s20 10 20 24c0 4-3 6-8 6H20c-5 0-8-2-8-6z"
+            fill="#e07a5f"
+          />
+          <circle cx="22" cy="22" r="4.2" fill="#f4e4c8" opacity="0.55" />
+          <circle cx="38" cy="18" r="2.4" fill="#f4e4c8" opacity="0.45" />
+          <circle cx="26" cy="44" r="2.2" fill="#3a2a22" />
+          <circle cx="38" cy="44" r="2.2" fill="#3a2a22" />
+          <path
+            d="M27 51c2.4 2.2 7.6 2.2 10 0"
+            fill="none"
+            stroke="#3a2a22"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+          <ellipse cx="18" cy="58" rx="7" ry="2.2" fill="#0d1612" opacity="0.35" />
+        </svg>
+        <div>
+          <h1>mycorust</h1>
+          <p class="tagline">a little fungus, growing in your browser</p>
+        </div>
+      </div>
+      <p class="hint" id="hint">Tap the soil to leave a crumb.</p>
+    </header>
+
+    <main class="stage">
+      <canvas id="soil" aria-label="Mycelium growing in soil"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+    </main>
+
+    <footer class="dock">
+      <div class="pills" aria-live="polite">
+        <span class="pill" id="stat-tips">tips 0</span>
+        <span class="pill" id="stat-mush">sprouts 0</span>
+        <span class="pill" id="stat-mood">waking up</span>
+      </div>
+      <div class="actions">
+        <button type="button" id="btn-feed" class="btn primary">feed</button>
+        <button type="button" id="btn-pause" class="btn">pause</button>
+        <button type="button" id="btn-reset" class="btn">new spore</button>
+      </div>
+    </footer>
+
+    <script src="./sim.js"></script>
+  </body>
+</html>

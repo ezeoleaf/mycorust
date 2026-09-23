@@ -56,6 +56,7 @@ density_decay_rate: 0.99  # Rate at which density map decays over time
 # Trails
 max_segment_age: 10.0  # Maximum age before segments are removed
 segment_age_increment: 0.01  # How fast segments age per frame
+record_segments: true  # Record hyphal trails (disable in headless experiments)
 
 # Fruiting
 fruiting_min_hyphae: 12  # Minimum hyphae count to spawn fruiting bodies

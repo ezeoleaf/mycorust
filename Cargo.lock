@@ -694,14 +694,104 @@ dependencies = [
  "clap",
  "image",
  "macroquad",
+ "mycorust-core",
+ "rand",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
+]
+
+[[package]]
+name = "mycorust-benchmark"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-climate"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-compression"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-core"
+version = "0.1.0"
+dependencies = [
  "rand",
  "rayon",
  "serde",
  "serde_json",
  "serde_yaml",
- "tokio",
- "tower 0.4.13",
- "tower-http",
+]
+
+[[package]]
+name = "mycorust-ethics"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-evolution"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-generative"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-infrastructure"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-materials"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-routing"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
+]
+
+[[package]]
+name = "mycorust-sound"
+version = "0.1.0"
+dependencies = [
+ "mycorust-core",
+ "rand",
 ]
 
 [[package]]

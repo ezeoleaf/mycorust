@@ -2,7 +2,7 @@ use ::rand as external_rand;
 use external_rand::Rng;
 use macroquad::prelude::*;
 
-use crate::simulation::Simulation;
+use mycorust_core::simulation::Simulation;
 
 pub struct ControlText {
     pub text: &'static str,
@@ -10,7 +10,12 @@ pub struct ControlText {
     pub color: Color,
 }
 
-pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
+pub fn handle_controls<R: Rng>(
+    sim: &mut Simulation,
+    camera: &mut crate::camera::Camera,
+    take_screenshot: &mut bool,
+    rng: &mut R,
+) {
     // Keyboard controls
     // Only toggle pause if space is pressed without left mouse (to avoid conflict with pan)
     // Camera handles space+left for panning, so we only toggle pause if left mouse is not down
@@ -82,21 +87,21 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
         // Camera controls
         if is_key_pressed(KeyCode::Home) {
             // Reset camera to default position and zoom
-            sim.camera.reset(&sim.config);
+            camera.reset(&sim.config);
         }
         // Toggle camera enabled/disabled (C key, but not when Shift is held for Clear)
         if is_key_pressed(KeyCode::C)
             && !is_key_down(KeyCode::LeftShift)
             && !is_key_down(KeyCode::RightShift)
         {
-            sim.toggle_camera();
+            camera.toggle_enabled();
         }
     }
 
     // Screenshot (P key)
     if is_key_pressed(KeyCode::P) {
         // Set flag to take screenshot at end of frame
-        sim.take_screenshot = true;
+        *take_screenshot = true;
     }
 
     // Help popup (F1 key, or Escape to close when visible)
@@ -124,9 +129,9 @@ pub fn handle_controls<R: Rng>(sim: &mut Simulation, rng: &mut R) {
     // Helper function to convert screen mouse position to world coordinates
     // Extract camera state and config to avoid borrowing conflicts
     let camera_enabled = sim.config.camera_enabled;
-    let camera_x = sim.camera.x;
-    let camera_y = sim.camera.y;
-    let camera_zoom = sim.camera.zoom;
+    let camera_x = camera.x;
+    let camera_y = camera.y;
+    let camera_zoom = camera.zoom;
     let grid_size = sim.config.grid_size;
     let cell_size = sim.config.cell_size;
     let screen_width = screen_width();

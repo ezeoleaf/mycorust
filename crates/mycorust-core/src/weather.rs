@@ -12,6 +12,16 @@ pub enum Season {
     Winter,
 }
 
+/// Forced climate / stress events for experiments that treat mycelium as a sensor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EnvironmentalStress {
+    Drought,
+    Flood,
+    HeatShock,
+    ColdShock,
+    Pollution,
+}
+
 /// Weather conditions that affect mycelium growth
 #[derive(Clone, Debug)]
 pub struct Weather {
@@ -246,6 +256,48 @@ impl Weather {
     pub fn temperature_celsius_approx(&self) -> f32 {
         // Convert to approximate Celsius: 0.0 = -10°C, 1.0 = 25°C, 2.0 = 40°C
         -10.0 + self.temperature * 35.0
+    }
+
+    /// Override seasonal weather with an acute stress event.
+    /// Seasonal cycling is disabled so the shock holds until you re-enable it.
+    pub fn apply_stress(&mut self, stress: EnvironmentalStress) {
+        self.seasonal_cycle_enabled = false;
+        match stress {
+            EnvironmentalStress::Drought => {
+                self.temperature = 1.45;
+                self.humidity = 0.15;
+                self.rain = 0.0;
+            }
+            EnvironmentalStress::Flood => {
+                self.temperature = 0.85;
+                self.humidity = 0.98;
+                self.rain = 1.0;
+            }
+            EnvironmentalStress::HeatShock => {
+                self.temperature = 1.6;
+                self.humidity = 0.35;
+                self.rain = 0.0;
+            }
+            EnvironmentalStress::ColdShock => {
+                self.temperature = 0.30;
+                self.humidity = 0.50;
+                self.rain = 0.0;
+            }
+            EnvironmentalStress::Pollution => {
+                self.temperature = 1.1;
+                self.humidity = 0.40;
+                self.rain = 0.05;
+            }
+        }
+    }
+
+    /// Restore mild spring-like conditions and resume seasonal cycling.
+    pub fn restore_baseline(&mut self) {
+        self.seasonal_cycle_enabled = true;
+        self.season = Season::Spring;
+        self.temperature = 0.85;
+        self.humidity = 0.65;
+        self.rain = 0.0;
     }
 }
 

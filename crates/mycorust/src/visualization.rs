@@ -1,10 +1,19 @@
 use macroquad::prelude::*;
 
-use crate::config::SimulationConfig;
 use crate::controls::get_controls_text;
-use crate::hypha::Hypha;
-use crate::nutrients::{nutrient_color, NutrientGrid};
-use crate::types::{Connection, FruitBody, Segment};
+use mycorust_core::config::SimulationConfig;
+use mycorust_core::hypha::Hypha;
+use mycorust_core::nutrients::NutrientGrid;
+use mycorust_core::types::{Connection, FruitBody, Segment};
+
+fn nutrient_color(sugar: f32, nitrogen: f32) -> Color {
+    let s = sugar.clamp(0.0, 1.0);
+    let n = nitrogen.clamp(0.0, 1.0);
+    let r = 0.2 + 0.3 * s + 0.2 * n;
+    let g = 0.3 + 0.5 * s + 0.1 * n;
+    let b = 0.2 + 0.3 * n;
+    Color::new(r, g, b, 1.0)
+}
 
 pub fn draw_nutrients(nutrients: &NutrientGrid, config: &SimulationConfig) {
     let grid_size = config.grid_size;
@@ -235,8 +244,8 @@ pub fn draw_memory_overlay(memory: &[Vec<f32>], memory_visible: bool, config: &S
     }
 }
 
-pub fn draw_zones(zones: &[Vec<crate::types::Zone>], config: &SimulationConfig) {
-    use crate::types::ZoneType;
+pub fn draw_zones(zones: &[Vec<mycorust_core::types::Zone>], config: &SimulationConfig) {
+    use mycorust_core::types::ZoneType;
     let cell_size = config.cell_size;
 
     for x in 0..zones.len() {
@@ -366,7 +375,7 @@ pub fn draw_segments(segments: &[Segment], max_segment_age: f32, hyphae_visible:
 // Enhanced visualization: Draw hyphae with flow intensity and stress coloring
 // Performance: Optimized with cached values and efficient lookups
 pub fn draw_hyphae_enhanced(
-    hyphae: &[crate::hypha::Hypha],
+    hyphae: &[mycorust_core::hypha::Hypha],
     _connections: &[Connection], // Not used directly, flow comes from cache
     show_flow: bool,
     show_stress: bool,
@@ -640,7 +649,7 @@ pub fn draw_minimap(
 
 pub fn draw_fruit_bodies(
     fruit_bodies: &[FruitBody],
-    hyphae: &[crate::hypha::Hypha],
+    hyphae: &[mycorust_core::hypha::Hypha],
     config: &SimulationConfig,
 ) {
     let cell_size = config.cell_size;
@@ -715,7 +724,7 @@ pub fn draw_stats_and_help(
     avg_energy: f32,
     paused: bool,
     speed_multiplier: f32,
-    weather: Option<&crate::weather::Weather>,
+    weather: Option<&mycorust_core::weather::Weather>,
 ) {
     let fps = get_fps();
     let stats_part1_text = format!(

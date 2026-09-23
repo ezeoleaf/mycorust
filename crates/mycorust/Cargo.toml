@@ -1,0 +1,24 @@
+[package]
+name = "mycorust"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Interactive mycelium growth simulation (UI + headless API)"
+
+[features]
+default = ["ui"]
+ui = ["macroquad", "image"]
+
+[dependencies]
+mycorust-core.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum = "0.7"
+tokio = { version = "1.35", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors"] }
+clap = { version = "4.4", features = ["derive"] }
+macroquad = { version = "0.4.14", optional = true }
+image = { version = "0.24", optional = true }

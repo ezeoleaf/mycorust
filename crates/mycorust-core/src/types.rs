@@ -1,17 +1,19 @@
-#[cfg(all(not(test), feature = "ui"))]
-use macroquad::prelude::Vec2;
+//! Shared geometry and network types. These are UI-agnostic so idea crates
+//! can inspect trails and connections without pulling in a renderer.
 
-#[cfg(any(test, not(feature = "ui")))]
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
 }
 
-#[cfg(any(test, not(feature = "ui")))]
 impl Vec2 {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
+    }
+
+    pub fn length(self) -> f32 {
+        (self.x * self.x + self.y * self.y).sqrt()
     }
 }
 
@@ -43,10 +45,10 @@ pub struct FruitBody {
 // Zone types for contaminants/competitors
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ZoneType {
-    None,           // No zone
-    Toxic,          // Toxic zone - harms hyphae
-    Competitor,     // Competitor zone - consumes nutrients (like Trichoderma)
-    Deadwood,       // Deadwood patch - nutrient-rich but may have mild effects
+    None,       // No zone
+    Toxic,      // Toxic zone - harms hyphae
+    Competitor, // Competitor zone - consumes nutrients (like Trichoderma)
+    Deadwood,   // Deadwood patch - nutrient-rich but may have mild effects
 }
 
 #[derive(Clone)]

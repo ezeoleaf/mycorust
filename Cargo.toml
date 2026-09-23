@@ -1,28 +1,31 @@
-[package]
-name = "mycorust"
+[workspace]
+resolver = "2"
+members = [
+    "crates/mycorust-core",
+    "crates/mycorust",
+    "ideas/climate",
+    "ideas/routing",
+    "ideas/compression",
+    "ideas/generative",
+    "ideas/benchmark",
+    "ideas/infrastructure",
+    "ideas/materials",
+    "ideas/ethics",
+    "ideas/sound",
+    "ideas/evolution",
+]
+default-members = ["crates/mycorust", "crates/mycorust-core"]
+
+[workspace.package]
 version = "0.1.0"
-authors = ["ezeoleaf"]
 edition = "2021"
+authors = ["ezeoleaf"]
+license = "MIT"
 
-[features]
-default = ["ui"]
-ui = ["macroquad", "image"]
-
-[dependencies]
-# UI dependencies (optional)
-macroquad = { version = "0.4.14", optional = true }
-image = { version = "0.24", optional = true }
-
-# Core dependencies
+[workspace.dependencies]
+mycorust-core = { path = "crates/mycorust-core" }
 rand = "0.8"
-rayon = "1.8" # For parallel processing
-
-# Headless mode dependencies
+rayon = "1.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-serde_yaml = "0.9" # For config file support
-axum = "0.7"
-tokio = { version = "1.35", features = ["full"] }
-tower = "0.4"
-tower-http = { version = "0.5", features = ["cors"] }
-clap = { version = "4.4", features = ["derive"] }
+serde_yaml = "0.9"

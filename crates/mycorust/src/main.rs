@@ -1,17 +1,10 @@
 use ::rand as external_rand;
 use clap::Parser;
 use external_rand::thread_rng;
+use mycorust_core::config::SimulationConfig;
+use mycorust_core::simulation::Simulation;
 
-mod config;
-mod hypha;
-mod nutrients;
-mod simulation;
-mod spore;
-mod types;
-mod weather;
-
-use config::*;
-use simulation::Simulation;
+mod api;
 
 #[cfg(feature = "ui")]
 mod camera;
@@ -19,8 +12,6 @@ mod camera;
 mod controls;
 #[cfg(feature = "ui")]
 mod visualization;
-
-mod api;
 
 #[cfg(feature = "ui")]
 use macroquad::prelude::*;
@@ -104,19 +95,21 @@ async fn ui_main(config: SimulationConfig) {
     let mut rng = thread_rng();
     // Initialize simulation with loaded config
     let mut sim = Simulation::with_config(&mut rng, config);
+    let mut camera = camera::Camera::new(sim.config.camera_enabled, &sim.config);
+    let mut take_screenshot = false;
 
     loop {
         // Update camera (pan/zoom)
         if sim.config.camera_enabled {
-            sim.camera.update(&sim.config);
+            camera.update(&sim.config);
         }
 
         // Handle player controls
-        handle_controls(&mut sim, &mut rng);
+        handle_controls(&mut sim, &mut camera, &mut take_screenshot, &mut rng);
 
         // Set camera transform for world rendering
         if sim.config.camera_enabled {
-            set_camera(&sim.camera.get_camera());
+            set_camera(&camera.get_camera());
         }
 
         // Blue background every frame so it stays visible
@@ -252,8 +245,8 @@ async fn ui_main(config: SimulationConfig) {
         }
 
         // Take screenshot if requested
-        if sim.take_screenshot {
-            sim.take_screenshot = false;
+        if take_screenshot {
+            take_screenshot = false;
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -337,12 +330,7 @@ async fn headless_main(
 ) -> Result<(), Box<dyn std::error::Error>> {
     use api::run_server;
     use api::ApiState;
-    use simulation::set_headless_mode;
 
-    // Set headless mode flag to avoid calling macroquad functions
-    set_headless_mode(true);
-
-    // Initialize simulation with loaded config
     let mut rng = thread_rng();
     let sim = Simulation::with_config(&mut rng, config);
 

@@ -1,0 +1,11 @@
+[package]
+name = "mycorust-ethics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Growth vs sustainability tradeoff simulator"
+
+[dependencies]
+mycorust-core.workspace = true
+rand.workspace = true

@@ -1,6 +1,3 @@
-#[cfg(feature = "ui")]
-use macroquad::prelude::*;
-
 // Multi-nutrient grid
 #[derive(Clone)]
 pub struct NutrientGrid {
@@ -16,6 +13,10 @@ impl NutrientGrid {
         }
     }
 
+    pub fn size(&self) -> usize {
+        self.sugar.len()
+    }
+
     pub fn total_at(&self, x: usize, y: usize) -> f32 {
         self.sugar[x][y] + self.nitrogen[x][y] * 0.5 // Nitrogen is less energy-dense
     }
@@ -27,18 +28,64 @@ impl NutrientGrid {
     pub fn add_nitrogen(&mut self, x: usize, y: usize, amount: f32) {
         self.nitrogen[x][y] = (self.nitrogen[x][y] + amount).min(1.0);
     }
-}
 
-#[cfg(feature = "ui")]
-pub fn nutrient_color(sugar: f32, nitrogen: f32) -> Color {
-    let s = sugar.clamp(0.0, 1.0);
-    let n = nitrogen.clamp(0.0, 1.0);
-    // Sugar = brown/green, Nitrogen = blue/purple
-    // Blend them together
-    let r = 0.2 + 0.3 * s + 0.2 * n;
-    let g = 0.3 + 0.5 * s + 0.1 * n;
-    let b = 0.2 + 0.3 * n;
-    Color::new(r, g, b, 1.0)
+    pub fn clear(&mut self) {
+        for row in &mut self.sugar {
+            for cell in row {
+                *cell = 0.0;
+            }
+        }
+        for row in &mut self.nitrogen {
+            for cell in row {
+                *cell = 0.0;
+            }
+        }
+    }
+
+    /// Paint a circular nutrient patch. Amounts are added and clamped to 1.0.
+    pub fn add_patch(&mut self, cx: usize, cy: usize, radius: f32, sugar: f32, nitrogen: f32) {
+        let size = self.size() as isize;
+        let r = radius.ceil() as isize;
+        for dx in -r..=r {
+            for dy in -r..=r {
+                let dist = ((dx * dx + dy * dy) as f32).sqrt();
+                if dist > radius {
+                    continue;
+                }
+                let x = cx as isize + dx;
+                let y = cy as isize + dy;
+                if x < 0 || y < 0 || x >= size || y >= size {
+                    continue;
+                }
+                let falloff = 1.0 - (dist / radius.max(0.001));
+                self.add_sugar(x as usize, y as usize, sugar * falloff);
+                self.add_nitrogen(x as usize, y as usize, nitrogen * falloff);
+            }
+        }
+    }
+
+    pub fn total_mass(&self) -> f32 {
+        let mut total = 0.0;
+        for x in 0..self.size() {
+            for y in 0..self.size() {
+                total += self.sugar[x][y] + self.nitrogen[x][y];
+            }
+        }
+        total
+    }
+
+    /// Count cells whose combined nutrient exceeds `threshold`.
+    pub fn occupied_cells(&self, threshold: f32) -> usize {
+        let mut count = 0;
+        for x in 0..self.size() {
+            for y in 0..self.size() {
+                if self.total_at(x, y) > threshold {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
 }
 
 pub fn nutrient_gradient(grid: &NutrientGrid, x: f32, y: f32, grid_size: usize) -> (f32, f32) {

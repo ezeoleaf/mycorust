@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use tower_http::cors::CorsLayer;
 
-use crate::config::SimulationConfig;
-use crate::simulation::Simulation;
+use mycorust_core::config::SimulationConfig;
+use mycorust_core::simulation::Simulation;
 use ::rand::rngs::StdRng;
 use ::rand::SeedableRng;
 

@@ -1,0 +1,11 @@
+[package]
+name = "mycorust-compression"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Mycelium as a spatial compression algorithm"
+
+[dependencies]
+mycorust-core.workspace = true
+rand.workspace = true

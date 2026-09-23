@@ -1,0 +1,11 @@
+[package]
+name = "mycorust-climate"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Mycelium as a climate-response / bio-indicator"
+
+[dependencies]
+mycorust-core.workspace = true
+rand.workspace = true
