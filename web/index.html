@@ -7,7 +7,7 @@
     <title>mycorust — a little fungus</title>
     <meta
       name="description"
-      content="Watch a tiny mycelium network grow in your browser. Tap the soil to feed it crumbs."
+      content="Watch a tiny mycelium network grow in your browser. Seasons turn, weather rolls in, tap the soil to feed it crumbs."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,16 +17,26 @@
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body>
+  <body data-season="spring" data-weather="clear">
     <div class="grain" aria-hidden="true"></div>
+    <div class="sky-wash" aria-hidden="true"></div>
 
     <header class="top">
       <div class="brand">
         <svg class="mascot" viewBox="0 0 64 64" role="img" aria-label="A round smiling mushroom">
+          <ellipse cx="34" cy="56" rx="14" ry="3.4" fill="#0d1612" opacity="0.38" />
           <ellipse cx="32" cy="46" rx="11" ry="12" fill="#f4e4c8" />
           <path
             d="M12 30c0-14 9-24 20-24s20 10 20 24c0 4-3 6-8 6H20c-5 0-8-2-8-6z"
             fill="#e07a5f"
+          />
+          <path
+            d="M14 28c2-10 9-18 18-18"
+            fill="none"
+            stroke="#f4e4c8"
+            stroke-opacity="0.35"
+            stroke-width="3"
+            stroke-linecap="round"
           />
           <circle cx="22" cy="22" r="4.2" fill="#f4e4c8" opacity="0.55" />
           <circle cx="38" cy="18" r="2.4" fill="#f4e4c8" opacity="0.45" />
@@ -39,7 +49,6 @@
             stroke-width="1.8"
             stroke-linecap="round"
           />
-          <ellipse cx="18" cy="58" rx="7" ry="2.2" fill="#0d1612" opacity="0.35" />
         </svg>
         <div>
           <h1>mycorust</h1>
@@ -56,12 +65,15 @@
 
     <footer class="dock">
       <div class="pills" aria-live="polite">
+        <button type="button" class="pill" id="stat-season" title="Peek at the next season">spring</button>
+        <span class="pill" id="stat-weather">clear</span>
         <span class="pill" id="stat-tips">tips 0</span>
         <span class="pill" id="stat-mush">sprouts 0</span>
         <span class="pill" id="stat-mood">waking up</span>
       </div>
       <div class="actions">
         <button type="button" id="btn-feed" class="btn primary">feed</button>
+        <button type="button" id="btn-sky" class="btn">sky</button>
         <button type="button" id="btn-pause" class="btn">pause</button>
         <button type="button" id="btn-reset" class="btn">new spore</button>
       </div>

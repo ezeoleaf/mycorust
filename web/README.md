@@ -1,6 +1,6 @@
 # mycorust on the web
 
-A cozy in-browser mycelium garden. Open `index.html` and a spore drifts down, germinates, and starts exploring. Tap the soil to leave sugar crumbs.
+A cozy in-browser mycelium garden. Open `index.html` and a spore drifts down, germinates, and starts exploring. Tap the soil to leave sugar crumbs. Seasons turn on their own; weather (rain, sun, warm, cold, snow) changes the light, the soil, and how fast the network grows. Use **sky** to peek at the next weather.
 
 This folder is static on purpose so GitHub Pages can host it with no build step.
 
